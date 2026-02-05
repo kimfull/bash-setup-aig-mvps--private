@@ -127,3 +127,66 @@ https://docs.openclaw.ai/
     - 流程：一般的 git add / git commit / git push 或讀取行為請直接執行 (Always Proceed)；Force push 或類似刪除行為才會詢問。
 
 
+
+---
+
+## 實作備註 (2026-02-05 更新)
+
+以下是在實作過程中發現的重要技術細節：
+
+### OpenClaw 設定檔必要欄位
+
+根據官方文檔，openclaw.json 必須包含：
+
+```json
+{
+  "gateway": {
+    "mode": "local",        // 必填！否則 Gateway 不會啟動
+    "port": 18188,
+    "bind": "lan",          // Docker 容器內必須用 "lan" 才能讓外部存取
+    "auth": {
+      "mode": "token",
+      "token": "..."
+    }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/.openclaw/workspace",
+      "userTimezone": "Asia/Taipei"
+    }
+  }
+}
+```
+
+### Docker 環境變數
+
+容器需要設定以下環境變數以支援多實例隔離：
+- `OPENCLAW_CONFIG_PATH`: 設定檔完整路徑
+- `OPENCLAW_STATE_DIR`: 狀態目錄路徑
+- `OPENCLAW_GATEWAY_PORT`: 端口號
+- `TZ`: 時區
+
+### Volume 掛載
+
+使用單一掛載點簡化配置：
+```bash
+-v /opt/openclaw/openclaw-1:/home/node/.openclaw
+```
+
+這會自動包含 config/, state/, workspace/ 等子目錄。
+
+### 容器內部使用者
+
+OpenClaw 容器以 `node` 使用者 (UID 1000) 運行，因此：
+- 主機目錄需 `chown -R 1000:1000`
+- 掛載路徑為 `/home/node/.openclaw` (非 /root)
+
+### 健康檢查
+
+- 使用 `127.0.0.1` 而非 `localhost` 避免 IPv6 解析問題
+- 預期回應碼：200, 401, 403 都算正常
+
+### 官方文檔參考
+
+- 多實例隔離：https://docs.openclaw.ai/gateway/configuration#multi-instance-isolation
+- Gateway 設定：https://docs.openclaw.ai/gateway/configuration#gateway-gateway-server-mode-+-bind

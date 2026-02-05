@@ -221,6 +221,9 @@ create_directories() {
         mkdir -p "${INSTANCE_PATH}/state"
         mkdir -p "${INSTANCE_PATH}/workspace"
         
+        # 設定權限給容器內的 node 使用者 (UID 1000)
+        chown -R 1000:1000 "${INSTANCE_PATH}"
+        
         log_success "已建立: ${INSTANCE_PATH}/{config,state,workspace}"
     done
     
@@ -250,7 +253,7 @@ generate_configs() {
   "gateway": {
     "mode": "local",
     "port": ${PORT},
-    "bind": "0.0.0.0",
+    "bind": "lan",
     "auth": {
       "mode": "token",
       "token": "${TOKEN}"
@@ -258,7 +261,7 @@ generate_configs() {
   },
   "agents": {
     "defaults": {
-      "workspace": "/app/workspace",
+      "workspace": "/home/node/.openclaw/workspace",
       "userTimezone": "${TIMEZONE}"
     }
   }
@@ -266,6 +269,10 @@ generate_configs() {
 EOF
         
         chmod 600 "${INSTANCE_PATH}/config/openclaw.json"
+        
+        # 確保 node 使用者擁有設定檔權限
+        chown 1000:1000 "${INSTANCE_PATH}/config/openclaw.json"
+        
         log_success "已建立: ${INSTANCE_PATH}/config/openclaw.json"
     done
     
@@ -337,13 +344,12 @@ run_containers() {
             --log-opt max-size=${DOCKER_LOG_MAX_SIZE} \
             --log-opt max-file=${DOCKER_LOG_MAX_FILE} \
             -p ${PORT}:${PORT} \
-            -v ${INSTANCE_PATH}/config/openclaw.json:/root/.openclaw/openclaw.json:ro \
-            -v ${INSTANCE_PATH}/state:/root/.openclaw/state \
-            -v ${INSTANCE_PATH}/workspace:/root/.openclaw/workspace \
+            -v ${INSTANCE_PATH}:/home/node/.openclaw \
             -e TZ=${TIMEZONE} \
             -e OPENCLAW_GATEWAY_PORT=${PORT} \
-            ghcr.io/openclaw/openclaw:latest \
-            openclaw gateway --port ${PORT}
+            -e OPENCLAW_CONFIG_PATH=/home/node/.openclaw/config/openclaw.json \
+            -e OPENCLAW_STATE_DIR=/home/node/.openclaw/state \
+            ghcr.io/openclaw/openclaw:latest
         
         log_success "容器 ${NAME} 已啟動"
     done
@@ -372,13 +378,13 @@ health_check() {
         if docker ps --format '{{.Names}}' | grep -q "^${NAME}$"; then
             log_success "${NAME} 容器運行中"
             
-            # 嘗試 HTTP 健康檢查 (最多重試 3 次)
+            # 嘗試 HTTP 健康檢查 (最多重試 12 次，共 60 秒)
             local retry=0
-            local max_retry=3
+            local max_retry=6
             local healthy=false
             
             while [ $retry -lt $max_retry ]; do
-                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://localhost:${PORT}/" 2>/dev/null || echo "000")
+                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:${PORT}/" 2>/dev/null || echo "000")
                 if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
                     log_success "${NAME} HTTP 回應正常 (HTTP ${HTTP_CODE})"
                     healthy=true
@@ -424,7 +430,10 @@ security_hardening() {
     # 啟用自動安全更新
     log_info "設定自動安全更新..."
     apt-get install -y unattended-upgrades
-    dpkg-reconfigure -plow unattended-upgrades
+    
+    # 寫入設定檔以啟用自動更新
+    echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
+    echo 'APT::Periodic::Unattended-Upgrade "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
     log_success "自動安全更新已啟用"
 }
 
