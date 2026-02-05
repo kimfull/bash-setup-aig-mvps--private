@@ -167,3 +167,11 @@ echo "實例 1 UI: http://YOUR_VPS_IP:18789 (Token: 查看 openclaw-instance-1/o
 echo "實例 2 UI: http://YOUR_VPS_IP:18791 (Token: 查看 openclaw-instance-2/openclaw/.env)"
 echo "實例 3 UI: http://YOUR_VPS_IP:18793 (Token: 查看 openclaw-instance-3/openclaw/.env)"
 echo "=================================================="
+
+# --- 5. 維護與同步 (Git) ---
+# 記錄推送到 GitHub 的指令 (供參考)
+# git remote add origin https://github.com/kimfull/bash-setup-ai-agent-mvps.git
+# git branch -M main
+# git add .
+# git commit -m "update: bash setup for ai agent mvps"
+# git push -u origin main
