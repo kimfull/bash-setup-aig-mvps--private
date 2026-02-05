@@ -50,6 +50,9 @@ TIMEZONE="Asia/Taipei"
 SWAP_SIZE="8G"
 SWAPPINESS=20
 
+# 自動偵測 VPS 公開 IP
+VPS_IP=$(hostname -I | awk '{print $1}')
+
 # 實例配置 (名稱:端口)
 INSTANCES=("openclaw-1:18188" "openclaw-2:18288" "openclaw-3:18388")
 
@@ -257,6 +260,10 @@ generate_configs() {
     "auth": {
       "mode": "token",
       "token": "${TOKEN}"
+    },
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyDisableDeviceAuth": true
     }
   },
   "agents": {
@@ -464,8 +471,8 @@ show_summary() {
         echo ""
         echo -e "  ${CYAN}${NAME}${NC}"
         echo "  ├── 端口: ${PORT}"
-        echo "  ├── 網址: http://<VPS-IP>:${PORT}"
         echo "  ├── Token: ${TOKEN}"
+        echo "  ├── 存取網址: http://${VPS_IP}:${PORT}/?token=${TOKEN}"
         echo "  ├── 設定檔: ${BASE_PATH}/${NAME}/config/openclaw.json"
         echo "  ├── 狀態目錄: ${BASE_PATH}/${NAME}/state/"
         echo "  └── 工作區: ${BASE_PATH}/${NAME}/workspace/"
@@ -517,6 +524,7 @@ show_summary() {
             echo "[$NAME]"
             echo "Port: ${PORT}"
             echo "Token: ${TOKEN}"
+            echo "URL: http://${VPS_IP}:${PORT}/?token=${TOKEN}"
             echo "Config: ${BASE_PATH}/${NAME}/config/openclaw.json"
             echo ""
         done

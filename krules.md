@@ -190,3 +190,26 @@ OpenClaw 容器以 `node` 使用者 (UID 1000) 運行，因此：
 
 - 多實例隔離：https://docs.openclaw.ai/gateway/configuration#multi-instance-isolation
 - Gateway 設定：https://docs.openclaw.ai/gateway/configuration#gateway-gateway-server-mode-+-bind
+
+### 外部存取 Control UI
+
+由於 OpenClaw Control UI 需要「安全上下文」(Secure Context)，從外部 HTTP 存取時需要：
+
+1. 設定檔增加：
+```json
+{
+  "gateway": {
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyDisableDeviceAuth": true
+    }
+  }
+}
+```
+
+2. 使用帶 token 參數的 URL 存取：
+```
+http://<VPS-IP>:<PORT>/?token=<TOKEN>
+```
+
+Token 會自動儲存在瀏覽器 localStorage，後續存取不需再帶參數。
