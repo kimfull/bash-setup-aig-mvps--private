@@ -54,7 +54,7 @@ SWAPPINESS=20
 VPS_IP=$(hostname -I | awk '{print $1}')
 
 # 實例配置 (名稱:端口)
-INSTANCES=("openclaw-1:18188" "openclaw-2:18288" "openclaw-3:18388")
+INSTANCES=("openclaw-1:18111" "openclaw-2:18222" "openclaw-3:18333")
 
 # Docker 資源限制
 DOCKER_CPUS="3"
@@ -492,7 +492,22 @@ show_summary() {
     echo "  查看日誌:        docker logs openclaw-1"
     echo "  停止容器:        docker stop openclaw-1"
     echo "  重啟容器:        docker restart openclaw-1"
-    echo "  進入容器:        docker exec -it openclaw-1 /bin/bash"
+    echo "  進入容器:        docker exec -it openclaw-1 /bin/sh"
+    echo ""
+    echo "  OpenClaw CLI (在容器內執行):"
+    echo "    docker exec -it openclaw-1 node dist/index.js onboard      # 設定精靈"
+    echo "    docker exec -it openclaw-1 node dist/index.js configure    # 進階設定"
+    echo "    docker exec openclaw-1 node dist/index.js config get       # 查看設定"
+    echo "    docker exec openclaw-1 node dist/index.js models list      # 列出模型"
+    echo ""
+    echo "  設定 API Key (範例):"
+    echo "    docker exec openclaw-1 node dist/index.js config set auth.profiles.anthropic:main.provider \"anthropic\""
+    echo "    docker exec openclaw-1 node dist/index.js config set auth.profiles.anthropic:main.mode \"api_key\""
+    echo "    docker exec openclaw-1 node dist/index.js config set auth.profiles.anthropic:main.apiKey \"sk-ant-xxx\""
+    echo "    docker exec openclaw-1 node dist/index.js config set agents.defaults.model \"anthropic/claude-sonnet-4-5\""
+    echo ""
+    echo "  Telegram 配對:"
+    echo "    docker exec openclaw-1 node dist/index.js pairing approve telegram <配對碼>"
     echo ""
     echo "  更新容器:"
     echo "    docker pull ghcr.io/openclaw/openclaw:latest"
