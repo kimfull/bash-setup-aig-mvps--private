@@ -50,6 +50,9 @@ TIMEZONE="Asia/Taipei"
 SWAP_SIZE="8G"
 SWAPPINESS=20
 
+# SSH 安全設定
+SSH_PORT=28182
+
 # 自動偵測 VPS 公開 IP
 VPS_IP=$(hostname -I | awk '{print $1}')
 
@@ -298,9 +301,9 @@ setup_firewall() {
         apt-get install -y ufw
     fi
     
-    # 確保 SSH 不會被鎖住
-    log_info "允許 SSH..."
-    ufw allow ssh
+    # 允許自訂 SSH 端口 (非預設 22)
+    log_info "允許 SSH 端口 ${SSH_PORT}..."
+    ufw allow ${SSH_PORT}/tcp comment 'SSH custom port'
     
     # 開放各實例的端口
     for instance in "${INSTANCES[@]}"; do
@@ -427,12 +430,57 @@ health_check() {
 security_hardening() {
     log_step "Step 8: 安全加固"
     
+    # 修改 SSH 端口
+    log_info "修改 SSH 端口為 ${SSH_PORT}..."
+    sed -i 's/^#Port 22/Port '${SSH_PORT}'/' /etc/ssh/sshd_config
+    sed -i 's/^Port 22/Port '${SSH_PORT}'/' /etc/ssh/sshd_config
+    
+    # Ubuntu 24.04 使用 systemd socket activation，需要額外設定
+    mkdir -p /etc/systemd/system/ssh.socket.d
+    cat > /etc/systemd/system/ssh.socket.d/override.conf << EOF
+[Socket]
+ListenStream=
+ListenStream=${SSH_PORT}
+EOF
+    systemctl daemon-reload
+    systemctl restart ssh.socket
+    systemctl restart ssh
+    log_success "SSH 端口已修改為 ${SSH_PORT}"
+    
     # 安裝 fail2ban
     log_info "安裝 fail2ban..."
     apt-get install -y fail2ban
+    
+    # 建立 fail2ban 自訂設定 (含累犯封鎖規則)
+    log_info "設定 fail2ban (含累犯封鎖規則)..."
+    cat > /etc/fail2ban/jail.local << EOF
+# /etc/fail2ban/jail.local
+# 自訂 fail2ban 設定
+
+[DEFAULT]
+# 預設封鎖時間：10 分鐘
+bantime = 10m
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+port = ${SSH_PORT}
+
+# 累犯封鎖 (Recidive Jail)
+# 如果某個 IP 在 3 小時內被封鎖超過 3 次，就封鎖 24 小時
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+banaction = %(banaction_allports)s
+bantime = 24h
+findtime = 3h
+maxretry = 3
+EOF
+    
     systemctl enable fail2ban
-    systemctl start fail2ban
-    log_success "fail2ban 已安裝並啟動"
+    systemctl restart fail2ban
+    log_success "fail2ban 已安裝並啟動 (含累犯封鎖規則)"
     
     # 啟用自動安全更新
     log_info "設定自動安全更新..."
@@ -458,6 +506,8 @@ show_summary() {
     echo "系統配置："
     echo "  • Swap: ${SWAP_SIZE} (swappiness=${SWAPPINESS})"
     echo "  • 基礎路徑: ${BASE_PATH}"
+    echo "  • SSH 端口: ${SSH_PORT}"
+    echo "  • fail2ban: 已啟用 (含累犯封鎖規則)"
     echo ""
     echo "------------------------------------------------------------------------------"
     echo "實例資訊："
