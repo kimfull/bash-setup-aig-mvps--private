@@ -1,5 +1,6 @@
 目標：
-我們的目標是完成一個可以在全新的 ubuntu Server 上自動安裝openclaw lastest的sh檔。
+我們的目標是完成一個可以在全新的 ubuntu Server 24.04 VPS 上自動安裝openclaw lastest的sh檔。
+我們將遠端操作這台VPS，所以要確保openclaw的權限設定能透過遠端操作（webbase/ssh）來完成。
 我們將直接用root身份來進行操作，以利~/ai-agent.sh檔的完成。
 
 
@@ -24,9 +25,9 @@ VPS 規格：
 sh檔案 的功能及架構等說明：
 - 在 Ubuntu 24.04 Server 上自動安裝 Docker 並建置三個完全隔離的openclaw實例。
 - 每個實例將使用不同的容器名稱及端口，以確保隔離：
-    - ~/openclaw-1   :18188
-    - ~/openclaw-2   :18288
-    - ~/openclaw-3   :18388
+    - ~/openclaw-1   :18111
+    - ~/openclaw-2   :18222
+    - ~/openclaw-3   :18333
 - 每個實例將使用不同的數據存儲路徑，以確保隔離（詳見下方目錄結構規範）。
 
 目錄結構規範：
@@ -142,7 +143,7 @@ https://docs.openclaw.ai/
 {
   "gateway": {
     "mode": "local",        // 必填！否則 Gateway 不會啟動
-    "port": 18188,
+    "port": 18111,
     "bind": "lan",          // Docker 容器內必須用 "lan" 才能讓外部存取
     "auth": {
       "mode": "token",

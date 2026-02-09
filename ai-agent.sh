@@ -267,7 +267,8 @@ generate_configs() {
     "controlUi": {
       "allowInsecureAuth": true,
       "dangerouslyDisableDeviceAuth": true
-    }
+    },
+    "allowedOrigins": ["*"]
   },
   "agents": {
     "defaults": {
