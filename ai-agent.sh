@@ -51,7 +51,7 @@ SWAP_SIZE="8G"
 SWAPPINESS=20
 
 # SSH 安全設定
-SSH_PORT=28182
+SSH_PORT=22
 
 # 自動偵測 VPS 公開 IP
 VPS_IP=$(hostname -I | awk '{print $1}')
@@ -430,22 +430,22 @@ health_check() {
 security_hardening() {
     log_step "Step 8: 安全加固"
     
-    # 修改 SSH 端口
-    log_info "修改 SSH 端口為 ${SSH_PORT}..."
-    sed -i 's/^#Port 22/Port '${SSH_PORT}'/' /etc/ssh/sshd_config
-    sed -i 's/^Port 22/Port '${SSH_PORT}'/' /etc/ssh/sshd_config
+    # 修改 SSH 端口 (已註解，保留預設 Port 22)
+    # log_info "修改 SSH 端口為 ${SSH_PORT}..."
+    # sed -i 's/^#Port 22/Port '${SSH_PORT}'/' /etc/ssh/sshd_config
+    # sed -i 's/^Port 22/Port '${SSH_PORT}'/' /etc/ssh/sshd_config
     
     # Ubuntu 24.04 使用 systemd socket activation，需要額外設定
-    mkdir -p /etc/systemd/system/ssh.socket.d
-    cat > /etc/systemd/system/ssh.socket.d/override.conf << EOF
-[Socket]
-ListenStream=
-ListenStream=${SSH_PORT}
-EOF
-    systemctl daemon-reload
-    systemctl restart ssh.socket
-    systemctl restart ssh
-    log_success "SSH 端口已修改為 ${SSH_PORT}"
+    # mkdir -p /etc/systemd/system/ssh.socket.d
+    # cat > /etc/systemd/system/ssh.socket.d/override.conf << EOF
+# [Socket]
+# ListenStream=
+# ListenStream=${SSH_PORT}
+# EOF
+    # systemctl daemon-reload
+    # systemctl restart ssh.socket
+    # systemctl restart ssh
+    # log_success "SSH 端口已修改為 ${SSH_PORT}"
     
     # 安裝 fail2ban
     log_info "安裝 fail2ban..."
