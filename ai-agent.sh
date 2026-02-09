@@ -69,6 +69,10 @@ DOCKER_LOG_MAX_FILE="10"
 # 儲存生成的 Token (用於摘要報告)
 declare -A INSTANCE_TOKENS
 
+# Tailscale 設定 (Auth Key 將在 Step 3 互動式輸入)
+TAILSCALE_AUTHKEY=""
+TAILSCALE_HOSTNAME=""
+
 # ==============================================================================
 # 前置檢查
 # ==============================================================================
@@ -184,6 +188,7 @@ install_docker() {
         ca-certificates \
         curl \
         gnupg \
+        jq \
         lsb-release
     
     # 添加 Docker 官方 GPG 金鑰
@@ -213,10 +218,70 @@ install_docker() {
 }
 
 # ==============================================================================
-# Step 3: 建立目錄結構
+# Step 3: 安裝 Tailscale
+# ==============================================================================
+install_tailscale() {
+    log_step "Step 3: 安裝 Tailscale"
+    
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}請輸入 Tailscale Auth Key${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "請在 Tailscale 管理後台建立 Auth Key:"
+    echo "  👉 https://login.tailscale.com/admin/settings/keys"
+    echo ""
+    echo "建議設定:"
+    echo "  • Reusable: 否 (一次性使用更安全)"
+    echo "  • Expiration: 1 hour (足夠完成安裝)"
+    echo ""
+    
+    # 循環直到輸入有效的 Key
+    while true; do
+        read -p "請輸入 Tailscale Auth Key (tskey-auth-xxx): " TAILSCALE_AUTHKEY
+        if [ -n "$TAILSCALE_AUTHKEY" ]; then
+            break
+        else
+            log_error "Auth Key 不能為空，請重新輸入"
+        fi
+    done
+    
+    log_success "已接收 Tailscale Auth Key"
+    
+    # 確保 jq 已安裝
+    if ! command -v jq &> /dev/null; then
+        log_info "安裝 jq..."
+        apt-get update && apt-get install -y jq
+    fi
+
+    # 檢查是否已安裝 Tailscale
+    if command -v tailscale &> /dev/null; then
+        log_success "Tailscale 已安裝，版本: $(tailscale version | head -1)"
+    else
+        log_info "安裝 Tailscale..."
+        curl -fsSL https://tailscale.com/install.sh | sh
+        log_success "Tailscale 安裝完成"
+    fi
+    
+    # 檢查是否已連線
+    if tailscale status &> /dev/null 2>&1; then
+        log_success "Tailscale 已連線"
+    else
+        log_info "使用 Auth Key 連線 Tailscale..."
+        tailscale up --authkey="${TAILSCALE_AUTHKEY}"
+        log_success "Tailscale 連線成功"
+    fi
+    
+    # 獲取 Tailscale hostname
+    TAILSCALE_HOSTNAME=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')
+    log_success "Tailscale hostname: ${TAILSCALE_HOSTNAME}"
+}
+
+# ==============================================================================
+# Step 4: 建立目錄結構
 # ==============================================================================
 create_directories() {
-    log_step "Step 3: 建立目錄結構 (${BASE_PATH})"
+    log_step "Step 4: 建立目錄結構 (${BASE_PATH})"
     
     for instance in "${INSTANCES[@]}"; do
         NAME=$(echo $instance | cut -d':' -f1)
@@ -237,10 +302,10 @@ create_directories() {
 }
 
 # ==============================================================================
-# Step 4: 生成 Token 並建立設定檔
+# Step 5: 生成 Token 並建立設定檔
 # ==============================================================================
 generate_configs() {
-    log_step "Step 4: 生成 Token 並建立設定檔"
+    log_step "Step 5: 生成 Token 並建立設定檔"
     
     for instance in "${INSTANCES[@]}"; do
         NAME=$(echo $instance | cut -d':' -f1)
@@ -253,7 +318,7 @@ generate_configs() {
         
         log_info "生成 ${NAME} 的設定檔..."
         
-        # 建立 openclaw.json 設定檔
+        # 建立 openclaw.json 設定檔 (Tailscale 模式)
         cat > "${INSTANCE_PATH}/config/openclaw.json" <<EOF
 {
   "gateway": {
@@ -262,13 +327,13 @@ generate_configs() {
     "bind": "lan",
     "auth": {
       "mode": "token",
-      "token": "${TOKEN}"
+      "token": "${TOKEN}",
+      "allowTailscale": true
     },
     "controlUi": {
-      "allowInsecureAuth": true,
-      "dangerouslyDisableDeviceAuth": true
-    },
-    "allowedOrigins": ["*"]
+      "enabled": true,
+      "allowInsecureAuth": true
+    }
   },
   "agents": {
     "defaults": {
@@ -291,10 +356,10 @@ EOF
 }
 
 # ==============================================================================
-# Step 5: 設定防火牆 (UFW)
+# Step 6: 設定防火牆 (UFW)
 # ==============================================================================
 setup_firewall() {
-    log_step "Step 5: 設定防火牆 (UFW)"
+    log_step "Step 6: 設定防火牆 (UFW)"
     
     # 確保 UFW 已安裝
     if ! command -v ufw &> /dev/null; then
@@ -306,26 +371,23 @@ setup_firewall() {
     log_info "允許 SSH 端口 ${SSH_PORT}..."
     ufw allow ${SSH_PORT}/tcp comment 'SSH custom port'
     
-    # 開放各實例的端口
-    for instance in "${INSTANCES[@]}"; do
-        PORT=$(echo $instance | cut -d':' -f2)
-        log_info "開放端口 ${PORT}..."
-        ufw allow ${PORT}/tcp
-    done
+    # Tailscale 模式：不開放 OpenClaw 端口到公網
+    # 所有實例透過 Tailscale Serve 存取
+    log_info "Tailscale 模式：不開放 18111/18222/18333 到公網"
     
     # 啟用 UFW
     log_info "啟用 UFW..."
     echo "y" | ufw enable
     
-    log_success "防火牆設定完成"
+    log_success "防火牆設定完成 (僅開放 SSH)"
     ufw status
 }
 
 # ==============================================================================
-# Step 6: 拉取並運行 OpenClaw 容器
+# Step 7: 拉取並運行 OpenClaw 容器
 # ==============================================================================
 run_containers() {
-    log_step "Step 6: 拉取並運行 OpenClaw 容器"
+    log_step "Step 7: 拉取並運行 OpenClaw 容器"
     
     # 拉取最新映像檔
     log_info "拉取 OpenClaw 最新映像檔..."
@@ -345,7 +407,7 @@ run_containers() {
             docker rm ${NAME} 2>/dev/null || true
         fi
         
-        # 運行容器
+        # 運行容器 (綁定到 127.0.0.1，透過 Tailscale Serve 存取)
         docker run -d \
             --name ${NAME} \
             --restart=unless-stopped \
@@ -354,7 +416,7 @@ run_containers() {
             --memory-reservation=${DOCKER_MEMORY_RESERVATION} \
             --log-opt max-size=${DOCKER_LOG_MAX_SIZE} \
             --log-opt max-file=${DOCKER_LOG_MAX_FILE} \
-            -p ${PORT}:${PORT} \
+            -p 127.0.0.1:${PORT}:${PORT} \
             -v ${INSTANCE_PATH}:/home/node/.openclaw \
             -e TZ=${TIMEZONE} \
             -e OPENCLAW_GATEWAY_PORT=${PORT} \
@@ -362,17 +424,17 @@ run_containers() {
             -e OPENCLAW_STATE_DIR=/home/node/.openclaw/state \
             ghcr.io/openclaw/openclaw:latest
         
-        log_success "容器 ${NAME} 已啟動"
+        log_success "容器 ${NAME} 已啟動 (綁定 127.0.0.1:${PORT})"
     done
     
     log_success "所有容器已啟動"
 }
 
 # ==============================================================================
-# Step 7: 健康檢查
+# Step 8: 健康檢查
 # ==============================================================================
 health_check() {
-    log_step "Step 7: 健康檢查"
+    log_step "Step 8: 健康檢查"
     
     log_info "等待容器啟動 (10 秒)..."
     sleep 10
@@ -389,7 +451,7 @@ health_check() {
         if docker ps --format '{{.Names}}' | grep -q "^${NAME}$"; then
             log_success "${NAME} 容器運行中"
             
-            # 嘗試 HTTP 健康檢查 (最多重試 12 次，共 60 秒)
+            # 嘗試 HTTP 健康檢查 (最多重試 6 次，共 30 秒)
             local retry=0
             local max_retry=6
             local healthy=false
@@ -426,10 +488,29 @@ health_check() {
 }
 
 # ==============================================================================
-# Step 8: 安全加固 (可選)
+# Step 9: 設定 Tailscale Serve
+# ==============================================================================
+setup_tailscale_serve() {
+    log_step "Step 9: 設定 Tailscale Serve"
+    
+    for instance in "${INSTANCES[@]}"; do
+        NAME=$(echo $instance | cut -d':' -f1)
+        PORT=$(echo $instance | cut -d':' -f2)
+        
+        log_info "設定 ${NAME} 的 Tailscale Serve (HTTPS port ${PORT})..."
+        tailscale serve --bg --https ${PORT} http://127.0.0.1:${PORT}
+        log_success "已設定: https://${TAILSCALE_HOSTNAME}:${PORT}/"
+    done
+    
+    log_success "所有 Tailscale Serve 已設定"
+    tailscale serve status
+}
+
+# ==============================================================================
+# Step 10: 安全加固 (可選)
 # ==============================================================================
 security_hardening() {
-    log_step "Step 8: 安全加固"
+    log_step "Step 10: 安全加固"
     
     # 修改 SSH 端口 (已註解，保留預設 Port 22)
     # log_info "修改 SSH 端口為 ${SSH_PORT}..."
@@ -494,7 +575,7 @@ EOF
 }
 
 # ==============================================================================
-# Step 9: 顯示安裝摘要
+# Step 11: 顯示安裝摘要
 # ==============================================================================
 show_summary() {
     log_step "安裝完成摘要"
@@ -511,6 +592,12 @@ show_summary() {
     echo "  • fail2ban: 已啟用 (含累犯封鎖規則)"
     echo ""
     echo "------------------------------------------------------------------------------"
+    echo "Tailscale 資訊："
+    echo "------------------------------------------------------------------------------"
+    echo "  • Tailscale hostname: ${TAILSCALE_HOSTNAME}"
+    echo "  • 存取方式: 僅限 Tailscale 網路內的設備"
+    echo ""
+    echo "------------------------------------------------------------------------------"
     echo "實例資訊："
     echo "------------------------------------------------------------------------------"
     
@@ -522,8 +609,8 @@ show_summary() {
         echo ""
         echo -e "  ${CYAN}${NAME}${NC}"
         echo "  ├── 端口: ${PORT}"
-        echo "  ├── Token: ${TOKEN}"
-        echo "  ├── 存取網址: http://${VPS_IP}:${PORT}/?token=${TOKEN}"
+        echo "  ├── 存取網址: https://${TAILSCALE_HOSTNAME}:${PORT}/"
+        echo "  ├── Token: ${TOKEN} (首次登入時在設定中輸入)"
         echo "  ├── 設定檔: ${BASE_PATH}/${NAME}/config/openclaw.json"
         echo "  ├── 狀態目錄: ${BASE_PATH}/${NAME}/state/"
         echo "  └── 工作區: ${BASE_PATH}/${NAME}/workspace/"
@@ -531,9 +618,9 @@ show_summary() {
     
     echo ""
     echo "------------------------------------------------------------------------------"
-    echo "防火牆狀態："
+    echo "Tailscale Serve 狀態："
     echo "------------------------------------------------------------------------------"
-    ufw status | grep -E "^[0-9]|Status"
+    tailscale serve status
     
     echo ""
     echo "------------------------------------------------------------------------------"
@@ -544,6 +631,11 @@ show_summary() {
     echo "  停止容器:        docker stop openclaw-1"
     echo "  重啟容器:        docker restart openclaw-1"
     echo "  進入容器:        docker exec -it openclaw-1 /bin/sh"
+    echo ""
+    echo "  Tailscale 指令:"
+    echo "    tailscale status                    # 查看 Tailscale 狀態"
+    echo "    tailscale serve status              # 查看 Serve 設定"
+    echo "    tailscale serve --https 18111 off   # 關閉某個 Serve"
     echo ""
     echo "  OpenClaw CLI (在容器內執行):"
     echo "    docker exec -it openclaw-1 node dist/index.js onboard      # 設定精靈"
@@ -580,8 +672,9 @@ show_summary() {
     # 儲存摘要到檔案
     SUMMARY_FILE="${BASE_PATH}/install-summary.txt"
     {
-        echo "OpenClaw 安裝摘要"
+        echo "OpenClaw 安裝摘要 (Tailscale 模式)"
         echo "建立時間: $(date)"
+        echo "Tailscale hostname: ${TAILSCALE_HOSTNAME}"
         echo ""
         for instance in "${INSTANCES[@]}"; do
             NAME=$(echo $instance | cut -d':' -f1)
@@ -590,7 +683,7 @@ show_summary() {
             echo "[$NAME]"
             echo "Port: ${PORT}"
             echo "Token: ${TOKEN}"
-            echo "URL: http://${VPS_IP}:${PORT}/?token=${TOKEN}"
+            echo "URL: https://${TAILSCALE_HOSTNAME}:${PORT}/"
             echo "Config: ${BASE_PATH}/${NAME}/config/openclaw.json"
             echo ""
         done
@@ -607,20 +700,22 @@ main() {
     echo ""
     echo "=============================================================================="
     echo "                    OpenClaw 自動安裝腳本"
-    echo "                    Ubuntu 24.04 Server"
+    echo "                    Ubuntu 24.04 Server (Tailscale 模式)"
     echo "=============================================================================="
     echo ""
     
-    preflight_checks
-    setup_swap
-    install_docker
-    create_directories
-    generate_configs
-    setup_firewall
-    run_containers
-    health_check
-    security_hardening
-    show_summary
+    preflight_checks         # Step 0
+    setup_swap               # Step 1
+    install_docker           # Step 2
+    install_tailscale        # Step 3
+    create_directories       # Step 4
+    generate_configs         # Step 5
+    setup_firewall           # Step 6
+    run_containers           # Step 7
+    health_check             # Step 8
+    setup_tailscale_serve    # Step 9
+    security_hardening       # Step 10
+    show_summary             # Step 11
 }
 
 # 執行主函數
