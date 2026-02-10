@@ -307,6 +307,53 @@ create_directories() {
 }
 
 # ==============================================================================
+# Step 4.5: 建立自定義 Dockerfile（含 Homebrew）
+# ==============================================================================
+create_dockerfile() {
+    log_step "Step 4.5: 建立自定義 Dockerfile（含 Homebrew）"
+    
+    DOCKERFILE="${BASE_PATH}/Dockerfile.custom"
+    
+    log_info "建立 Dockerfile.custom..."
+    cat > "${DOCKERFILE}" <<'DOCKERFILE_CONTENT'
+FROM ghcr.io/openclaw/openclaw:latest
+
+USER root
+
+# 安裝 Homebrew 所需的系統依賴
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    file \
+    git \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# 創建 linuxbrew 目錄並設置權限
+RUN mkdir -p /home/linuxbrew/.linuxbrew && \
+    chown -R node:node /home/linuxbrew
+
+USER node
+
+# 非交互式安裝 Homebrew
+RUN NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
+    echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
+
+# 配置環境變量
+ENV PATH="/home/linuxbrew/.linuxbrew/bin:${PATH}"
+
+USER root
+RUN chown -R node:node /home/linuxbrew
+
+USER node
+
+WORKDIR /app
+DOCKERFILE_CONTENT
+    
+    log_success "已建立: ${DOCKERFILE}"
+}
+
+# ==============================================================================
 # Step 5: 生成 Token 並建立設定檔
 # ==============================================================================
 generate_configs() {
@@ -358,11 +405,9 @@ EOF
     done
     
     # 生成 docker-compose.yml
-    log_info "生成 docker-compose.yml..."
+    log_info "生成 docker-compose.yml（含 Homebrew 支持）..."
     COMPOSE_FILE="${BASE_PATH}/docker-compose.yml"
     cat > "${COMPOSE_FILE}" <<'COMPOSE_HEADER'
-version: "3.8"
-
 services:
 COMPOSE_HEADER
     
@@ -373,7 +418,10 @@ COMPOSE_HEADER
         
         cat >> "${COMPOSE_FILE}" <<EOF
   ${NAME}:
-    image: ghcr.io/openclaw/openclaw:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.custom
+    image: openclaw-custom:latest
     container_name: ${NAME}
     restart: unless-stopped
     cpus: ${DOCKER_CPUS}
@@ -388,12 +436,14 @@ COMPOSE_HEADER
       - "127.0.0.1:${PORT}:${PORT}"
     volumes:
       - ${INSTANCE_PATH}:/home/node/.openclaw
+      - ${BASE_PATH}/linuxbrew-${NAME##*-}:/home/linuxbrew
     environment:
       - TZ=${TIMEZONE}
       - OPENCLAW_GATEWAY_PORT=${PORT}
       - OPENCLAW_CONFIG_PATH=/home/node/.openclaw/config/openclaw.json
       - OPENCLAW_STATE_DIR=/home/node/.openclaw/state
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE}
+      - PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 EOF
     done
@@ -434,19 +484,41 @@ setup_firewall() {
 # Step 7: 拉取並運行 OpenClaw 容器
 # ==============================================================================
 run_containers() {
-    log_step "Step 7: 拉取並運行 OpenClaw 容器"
+    log_step "Step 7: 構建自定義鏡像並運行 OpenClaw 容器"
     
-    # 拉取最新映像檔
-    log_info "拉取 OpenClaw 最新映像檔..."
+    # 拉取最新基礎映像檔
+    log_info "拉取 OpenClaw 最新基礎映像檔..."
     docker pull ghcr.io/openclaw/openclaw:latest
     
-    # 使用 docker compose 啟動所有容器
-    log_info "使用 docker compose 啟動所有容器..."
+    # 構建含 Homebrew 的自定義鏡像
+    log_info "構建自定義鏡像（含 Homebrew），需要 2-3 分鐘..."
     cd ${BASE_PATH}
+    docker compose build --no-cache
+    log_success "自定義鏡像構建完成"
+    
+    # 使用 docker create 創建一個不掛載 volume 的臨時容器來提取資料
+    log_info "從鏡像提取 Homebrew 初始資料..."
+    TEMP_ID=$(docker create openclaw-custom:latest)
+    
+    # 從臨時容器複製 Homebrew 資料到持久化目錄
+    docker cp ${TEMP_ID}:/home/linuxbrew ${BASE_PATH}/linuxbrew-1
+    log_success "已從鏡像提取 Homebrew 資料到 linuxbrew-1"
+    
+    # 清理臨時容器
+    docker rm -v ${TEMP_ID}
+    
+    # 複製給其他實例
+    for i in 2 3; do
+        cp -a ${BASE_PATH}/linuxbrew-1 ${BASE_PATH}/linuxbrew-${i}
+        log_success "已複製 Homebrew 資料到 linuxbrew-${i}"
+    done
+    
+    # 啟動所有容器（使用持久化 Volume）
+    log_info "啟動正式容器..."
     docker compose down 2>/dev/null || true
     docker compose up -d
     
-    log_success "所有容器已啟動 (docker compose)"
+    log_success "所有容器已啟動（含 Homebrew + 持久化）"
 }
 
 # ==============================================================================
@@ -678,10 +750,16 @@ show_summary() {
     echo "  Telegram 配對:"
     echo "    docker exec openclaw-1 node dist/index.js pairing approve telegram <配對碼>"
     echo ""
+    echo "  Homebrew 指令:"
+    echo "    docker exec openclaw-1 brew --version          # 檢查 brew 版本"
+    echo "    docker exec openclaw-1 brew install <package>  # 安裝 brew 包"
+    echo "    docker exec openclaw-1 brew list               # 列出已安裝的包"
+    echo "    # brew 包持久化在 ${BASE_PATH}/linuxbrew-{1,2,3}/"
+    echo ""
     echo "  更新容器:"
     echo "    cd ${BASE_PATH}"
-    echo "    docker compose pull                 # 拉取最新映像"
-    echo "    docker compose up -d                # 重建容器 (資料不受影響)"
+    echo "    docker compose build --no-cache       # 重新構建鏡像（含最新 OpenClaw + Homebrew）"
+    echo "    docker compose up -d                  # 重建容器 (資料不受影響)"
     echo ""
     echo "------------------------------------------------------------------------------"
     echo "備份與轉移："
@@ -742,6 +820,7 @@ main() {
     [ "$SKIP_TO_STEP" -le 2 ]  && install_docker           # Step 2
     [ "$SKIP_TO_STEP" -le 3 ]  && install_tailscale        # Step 3
     [ "$SKIP_TO_STEP" -le 4 ]  && create_directories       # Step 4
+    [ "$SKIP_TO_STEP" -le 4 ]  && create_dockerfile        # Step 4.5
     [ "$SKIP_TO_STEP" -le 5 ]  && generate_configs         # Step 5
     [ "$SKIP_TO_STEP" -le 6 ]  && setup_firewall           # Step 6
     [ "$SKIP_TO_STEP" -le 7 ]  && run_containers           # Step 7
