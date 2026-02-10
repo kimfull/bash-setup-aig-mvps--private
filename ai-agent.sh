@@ -273,7 +273,7 @@ install_tailscale() {
         log_success "Tailscale 已連線"
     else
         log_info "使用 Auth Key 連線 Tailscale..."
-        tailscale up --authkey="${TAILSCALE_AUTHKEY}"
+        tailscale up --ssh --authkey="${TAILSCALE_AUTHKEY}"
         log_success "Tailscale 連線成功"
     fi
     
@@ -465,7 +465,7 @@ EOF
         max-size: "10m"
         max-file: "3"
     ports:
-      - "127.0.0.1:18000:18000"
+      - "127.0.0.1:18999:18999"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -616,12 +616,12 @@ health_check() {
     done
     
     # 檢查 Admin Panel
-    log_info "檢查 Admin Panel (Port: 18000)..."
+    log_info "檢查 Admin Panel (Port: 18999)..."
     if docker ps --format '{{.Names}}' | grep -q "^openclaw-admin$"; then
         log_success "Admin Panel 容器運行中"
         
         # HTTP 健康檢查
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:18000/api/version" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:18999/api/version" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "200" ]; then
             log_success "Admin Panel HTTP 回應正常 (HTTP ${HTTP_CODE})"
         else
@@ -658,10 +658,10 @@ setup_tailscale_serve() {
     done
     
     # 設定 Admin Panel 的 Tailscale Serve
-    log_info "設定 Admin Panel 的 Tailscale Serve (HTTPS port 18000)..."
-    tailscale serve --bg --https 18000 http://127.0.0.1:18000
+    log_info "設定 Admin Panel 的 Tailscale Serve (HTTPS port 18999)..."
+    tailscale serve --bg --https 18999 http://127.0.0.1:18999
     sleep 1
-    log_success "已設定: https://${TAILSCALE_HOSTNAME}:18000/"
+    log_success "已設定: https://${TAILSCALE_HOSTNAME}:18999/"
     
     log_success "所有 Tailscale Serve 已設定"
     tailscale serve status
@@ -779,7 +779,7 @@ show_summary() {
     
     echo ""
     echo -e "  ${CYAN}[ADMIN PANEL]${NC}"
-    echo "  ├── 管理網址: https://${TAILSCALE_HOSTNAME}:18000/?token=${ADMIN_TOKEN}"
+    echo "  ├── 管理網址: https://${TAILSCALE_HOSTNAME}:18999/?token=${ADMIN_TOKEN}"
     echo "  ├── Token: ${ADMIN_TOKEN}"
     
     echo "------------------------------------------------------------------------------"
@@ -840,7 +840,7 @@ show_summary() {
     echo "    • 手動觸發更新: docker exec watchtower /watchtower --run-once"
     echo ""
     echo "  Admin Panel:"
-    echo "    • 網址: https://${TAILSCALE_HOSTNAME}:18000/?token=${ADMIN_TOKEN}"
+    echo "    • 網址: https://${TAILSCALE_HOSTNAME}:18999/?token=${ADMIN_TOKEN}"
     echo "    • 查看日誌: docker logs openclaw-admin"
     echo "    • 重啟: docker restart openclaw-admin"
     echo ""
@@ -879,7 +879,7 @@ show_summary() {
         done
 
         echo "[ADMIN PANEL]"
-        echo "URL: https://${TAILSCALE_HOSTNAME}:18000/?token=${ADMIN_TOKEN}"
+        echo "URL: https://${TAILSCALE_HOSTNAME}:18999/?token=${ADMIN_TOKEN}"
         echo "Token: ${ADMIN_TOKEN}"
     } > "${SUMMARY_FILE}"
     chmod 600 "${SUMMARY_FILE}"
