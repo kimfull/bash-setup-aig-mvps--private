@@ -443,10 +443,54 @@ COMPOSE_HEADER
       - OPENCLAW_CONFIG_PATH=/home/node/.openclaw/config/openclaw.json
       - OPENCLAW_STATE_DIR=/home/node/.openclaw/state
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE}
-      - PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:\$PATH
 
 EOF
     done
+
+    # 產生 Admin Token (隨機 16 位元組 hex)
+    ADMIN_TOKEN=$(openssl rand -hex 16)
+    log_success "生成 Admin Token: ${ADMIN_TOKEN}"
+
+    # 追加 Admin Panel 和 Watchtower 服務
+    cat >> "${COMPOSE_FILE}" <<EOF
+  admin-panel:
+    image: ghcr.io/kimfull/webvco-aig-mvps-panel--private:latest
+    container_name: openclaw-admin
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 512m
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "127.0.0.1:18000:18000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - NODE_ENV=production
+      - CONTAINER_PREFIX=openclaw-
+      - ANNOUNCEMENT_URL=https://gist.githubusercontent.com/kimfull/raw/announcements.json
+
+
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    cpus: 0.1
+    mem_limit: 128m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=false
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *
+      - TZ=${TIMEZONE}
+EOF
     
     log_success "已建立: ${COMPOSE_FILE}"
     log_success "所有設定檔已建立"
@@ -571,6 +615,25 @@ health_check() {
         fi
     done
     
+    # 檢查 Admin Panel
+    log_info "檢查 Admin Panel (Port: 18000)..."
+    if docker ps --format '{{.Names}}' | grep -q "^openclaw-admin$"; then
+        log_success "Admin Panel 容器運行中"
+        
+        # HTTP 健康檢查
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:18000/api/version" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "200" ]; then
+            log_success "Admin Panel HTTP 回應正常 (HTTP ${HTTP_CODE})"
+        else
+            log_warning "Admin Panel HTTP 回應: ${HTTP_CODE}"
+            all_healthy=false
+        fi
+    else
+        log_error "Admin Panel 容器未運行！"
+        log_error "請檢查日誌: docker logs openclaw-admin"
+        all_healthy=false
+    fi
+    
     if [ "$all_healthy" = true ]; then
         log_success "所有實例健康檢查通過"
     else
@@ -593,6 +656,12 @@ setup_tailscale_serve() {
         sleep 1  # 確保 Tailscale Serve 設定生效
         log_success "已設定: https://${TAILSCALE_HOSTNAME}:${PORT}/"
     done
+    
+    # 設定 Admin Panel 的 Tailscale Serve
+    log_info "設定 Admin Panel 的 Tailscale Serve (HTTPS port 18000)..."
+    tailscale serve --bg --https 18000 http://127.0.0.1:18000
+    sleep 1
+    log_success "已設定: https://${TAILSCALE_HOSTNAME}:18000/"
     
     log_success "所有 Tailscale Serve 已設定"
     tailscale serve status
@@ -709,6 +778,10 @@ show_summary() {
     done
     
     echo ""
+    echo -e "  ${CYAN}[ADMIN PANEL]${NC}"
+    echo "  ├── 管理網址: https://${TAILSCALE_HOSTNAME}:18000/?token=${ADMIN_TOKEN}"
+    echo "  ├── Token: ${ADMIN_TOKEN}"
+    
     echo "------------------------------------------------------------------------------"
     echo "Tailscale Serve 狀態："
     echo "------------------------------------------------------------------------------"
@@ -730,7 +803,7 @@ show_summary() {
     echo "  進入容器:"
     echo "    docker exec -it openclaw-1 /bin/sh"
     echo ""
-    echo "  Tailscale 指令:"
+    echo "  Tailscale 裝置認證:"
     echo "    tailscale status                    # 查看 Tailscale 狀態"
     echo "    tailscale serve status              # 查看 Serve 設定"
     echo "    tailscale serve --https 18111 off   # 關閉某個 Serve"
@@ -760,6 +833,16 @@ show_summary() {
     echo "    cd ${BASE_PATH}"
     echo "    docker compose build --no-cache       # 重新構建鏡像（含最新 OpenClaw + Homebrew）"
     echo "    docker compose up -d                  # 重建容器 (資料不受影響)"
+    echo ""
+    echo "  自動更新 (Watchtower):"
+    echo "    • Admin Panel 會在每天凌晨 4:00 自動檢查並更新"
+    echo "    • 查看 Watchtower 日誌: docker logs watchtower"
+    echo "    • 手動觸發更新: docker exec watchtower /watchtower --run-once"
+    echo ""
+    echo "  Admin Panel:"
+    echo "    • 網址: https://${TAILSCALE_HOSTNAME}:18000/?token=${ADMIN_TOKEN}"
+    echo "    • 查看日誌: docker logs openclaw-admin"
+    echo "    • 重啟: docker restart openclaw-admin"
     echo ""
     echo "------------------------------------------------------------------------------"
     echo "備份與轉移："
@@ -794,6 +877,10 @@ show_summary() {
             echo "Config: ${BASE_PATH}/${NAME}/config/openclaw.json"
             echo ""
         done
+
+        echo "[ADMIN PANEL]"
+        echo "URL: https://${TAILSCALE_HOSTNAME}:18000/?token=${ADMIN_TOKEN}"
+        echo "Token: ${ADMIN_TOKEN}"
     } > "${SUMMARY_FILE}"
     chmod 600 "${SUMMARY_FILE}"
     
