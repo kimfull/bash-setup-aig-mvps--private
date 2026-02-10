@@ -11,6 +11,29 @@
 set -e  # 遇到錯誤立即停止
 
 # ==============================================================================
+# 命令列參數解析
+# ==============================================================================
+SKIP_TO_STEP=0
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --tailscale-key)
+            TAILSCALE_AUTHKEY_ARG="$2"
+            shift 2
+            ;;
+        --skip-to-step)
+            SKIP_TO_STEP="$2"
+            shift 2
+            ;;
+        *)
+            echo "未知參數: $1"
+            echo "使用方式: sudo bash ai-agent.sh [--tailscale-key tskey-auth-xxx] [--skip-to-step N]"
+            exit 1
+            ;;
+    esac
+done
+
+# ==============================================================================
 # 顏色定義與輸出函數
 # ==============================================================================
 RED='\033[0;31m'
@@ -61,16 +84,20 @@ INSTANCES=("openclaw-1:18111" "openclaw-2:18222" "openclaw-3:18333")
 
 # Docker 資源限制
 DOCKER_CPUS="3"
+DOCKER_CPU_SHARES=1024
 DOCKER_MEMORY="4g"
 DOCKER_MEMORY_RESERVATION="2048m"
 DOCKER_LOG_MAX_SIZE="30m"
 DOCKER_LOG_MAX_FILE="10"
 
+# Node.js 記憶體限制 (防止 OOM)
+NODE_MAX_OLD_SPACE="1536"
+
 # 儲存生成的 Token (用於摘要報告)
 declare -A INSTANCE_TOKENS
 
-# Tailscale 設定 (Auth Key 將在 Step 3 互動式輸入)
-TAILSCALE_AUTHKEY=""
+# Tailscale 設定 (Auth Key 可透過 --tailscale-key 參數或互動式輸入)
+TAILSCALE_AUTHKEY="${TAILSCALE_AUTHKEY_ARG:-}"
 TAILSCALE_HOSTNAME=""
 
 # ==============================================================================
@@ -86,33 +113,6 @@ preflight_checks() {
         exit 1
     fi
     log_success "已確認以 root 身份運行"
-    
-    # 檢查 Ubuntu 版本
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        if [[ "$ID" != "ubuntu" ]]; then
-            log_error "此腳本僅支援 Ubuntu 系統，當前系統: $ID"
-            exit 1
-        fi
-        if [[ "$VERSION_ID" != "24.04" ]]; then
-            log_warning "建議使用 Ubuntu 24.04，當前版本: $VERSION_ID"
-        else
-            log_success "已確認 Ubuntu 24.04"
-        fi
-    else
-        log_error "無法確認作業系統版本"
-        exit 1
-    fi
-    
-    # 檢查磁碟空間 (至少 10GB)
-    AVAILABLE_SPACE=$(df / --output=avail -BG | tail -1 | tr -d ' G')
-    if [ "$AVAILABLE_SPACE" -lt 10 ]; then
-        log_error "磁碟空間不足，需要至少 10GB，目前可用: ${AVAILABLE_SPACE}GB"
-        exit 1
-    fi
-    log_success "磁碟空間足夠: ${AVAILABLE_SPACE}GB 可用"
-    
-    log_success "前置檢查完成"
 }
 
 # ==============================================================================
@@ -223,30 +223,35 @@ install_docker() {
 install_tailscale() {
     log_step "Step 3: 安裝 Tailscale"
     
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}請輸入 Tailscale Auth Key${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "請在 Tailscale 管理後台建立 Auth Key:"
-    echo "  👉 https://login.tailscale.com/admin/settings/keys"
-    echo ""
-    echo "建議設定:"
-    echo "  • Reusable: 否 (一次性使用更安全)"
-    echo "  • Expiration: 1 hour (足夠完成安裝)"
-    echo ""
-    
-    # 循環直到輸入有效的 Key
-    while true; do
-        read -p "請輸入 Tailscale Auth Key (tskey-auth-xxx): " TAILSCALE_AUTHKEY
-        if [ -n "$TAILSCALE_AUTHKEY" ]; then
-            break
-        else
-            log_error "Auth Key 不能為空，請重新輸入"
-        fi
-    done
-    
-    log_success "已接收 Tailscale Auth Key"
+    # 如果已透過 --tailscale-key 參數提供，則跳過互動式輸入
+    if [ -n "$TAILSCALE_AUTHKEY" ]; then
+        log_success "已透過命令列參數接收 Tailscale Auth Key"
+    else
+        echo ""
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}請輸入 Tailscale Auth Key${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "請在 Tailscale 管理後台建立 Auth Key:"
+        echo "  👉 https://login.tailscale.com/admin/settings/keys"
+        echo ""
+        echo "建議設定:"
+        echo "  • Reusable: 否 (一次性使用更安全)"
+        echo "  • Expiration: 1 hour (足夠完成安裝)"
+        echo ""
+        
+        # 循環直到輸入有效的 Key
+        while true; do
+            read -p "請輸入 Tailscale Auth Key (tskey-auth-xxx): " TAILSCALE_AUTHKEY
+            if [ -n "$TAILSCALE_AUTHKEY" ]; then
+                break
+            else
+                log_error "Auth Key 不能為空，請重新輸入"
+            fi
+        done
+        
+        log_success "已接收 Tailscale Auth Key"
+    fi
     
     # 確保 jq 已安裝
     if ! command -v jq &> /dev/null; then
@@ -352,6 +357,48 @@ EOF
         log_success "已建立: ${INSTANCE_PATH}/config/openclaw.json"
     done
     
+    # 生成 docker-compose.yml
+    log_info "生成 docker-compose.yml..."
+    COMPOSE_FILE="${BASE_PATH}/docker-compose.yml"
+    cat > "${COMPOSE_FILE}" <<'COMPOSE_HEADER'
+version: "3.8"
+
+services:
+COMPOSE_HEADER
+    
+    for instance in "${INSTANCES[@]}"; do
+        NAME=$(echo $instance | cut -d':' -f1)
+        PORT=$(echo $instance | cut -d':' -f2)
+        INSTANCE_PATH="${BASE_PATH}/${NAME}"
+        
+        cat >> "${COMPOSE_FILE}" <<EOF
+  ${NAME}:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: ${NAME}
+    restart: unless-stopped
+    cpus: ${DOCKER_CPUS}
+    cpu_shares: ${DOCKER_CPU_SHARES}
+    mem_limit: ${DOCKER_MEMORY}
+    mem_reservation: ${DOCKER_MEMORY_RESERVATION}
+    logging:
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE}
+        max-file: "${DOCKER_LOG_MAX_FILE}"
+    ports:
+      - "127.0.0.1:${PORT}:${PORT}"
+    volumes:
+      - ${INSTANCE_PATH}:/home/node/.openclaw
+    environment:
+      - TZ=${TIMEZONE}
+      - OPENCLAW_GATEWAY_PORT=${PORT}
+      - OPENCLAW_CONFIG_PATH=/home/node/.openclaw/config/openclaw.json
+      - OPENCLAW_STATE_DIR=/home/node/.openclaw/state
+      - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE}
+
+EOF
+    done
+    
+    log_success "已建立: ${COMPOSE_FILE}"
     log_success "所有設定檔已建立"
 }
 
@@ -393,41 +440,13 @@ run_containers() {
     log_info "拉取 OpenClaw 最新映像檔..."
     docker pull ghcr.io/openclaw/openclaw:latest
     
-    for instance in "${INSTANCES[@]}"; do
-        NAME=$(echo $instance | cut -d':' -f1)
-        PORT=$(echo $instance | cut -d':' -f2)
-        INSTANCE_PATH="${BASE_PATH}/${NAME}"
-        
-        log_info "建立容器 ${NAME} (Port: ${PORT})..."
-        
-        # 檢查容器是否已存在
-        if docker ps -a --format '{{.Names}}' | grep -q "^${NAME}$"; then
-            log_warning "容器 ${NAME} 已存在，正在停止並移除..."
-            docker stop ${NAME} 2>/dev/null || true
-            docker rm ${NAME} 2>/dev/null || true
-        fi
-        
-        # 運行容器 (綁定到 127.0.0.1，透過 Tailscale Serve 存取)
-        docker run -d \
-            --name ${NAME} \
-            --restart=unless-stopped \
-            --cpus=${DOCKER_CPUS} \
-            --memory=${DOCKER_MEMORY} \
-            --memory-reservation=${DOCKER_MEMORY_RESERVATION} \
-            --log-opt max-size=${DOCKER_LOG_MAX_SIZE} \
-            --log-opt max-file=${DOCKER_LOG_MAX_FILE} \
-            -p 127.0.0.1:${PORT}:${PORT} \
-            -v ${INSTANCE_PATH}:/home/node/.openclaw \
-            -e TZ=${TIMEZONE} \
-            -e OPENCLAW_GATEWAY_PORT=${PORT} \
-            -e OPENCLAW_CONFIG_PATH=/home/node/.openclaw/config/openclaw.json \
-            -e OPENCLAW_STATE_DIR=/home/node/.openclaw/state \
-            ghcr.io/openclaw/openclaw:latest
-        
-        log_success "容器 ${NAME} 已啟動 (綁定 127.0.0.1:${PORT})"
-    done
+    # 使用 docker compose 啟動所有容器
+    log_info "使用 docker compose 啟動所有容器..."
+    cd ${BASE_PATH}
+    docker compose down 2>/dev/null || true
+    docker compose up -d
     
-    log_success "所有容器已啟動"
+    log_success "所有容器已啟動 (docker compose)"
 }
 
 # ==============================================================================
@@ -499,6 +518,7 @@ setup_tailscale_serve() {
         
         log_info "設定 ${NAME} 的 Tailscale Serve (HTTPS port ${PORT})..."
         tailscale serve --bg --https ${PORT} http://127.0.0.1:${PORT}
+        sleep 1  # 確保 Tailscale Serve 設定生效
         log_success "已設定: https://${TAILSCALE_HOSTNAME}:${PORT}/"
     done
     
@@ -626,11 +646,17 @@ show_summary() {
     echo "------------------------------------------------------------------------------"
     echo "常用指令："
     echo "------------------------------------------------------------------------------"
-    echo "  查看容器狀態:    docker ps"
-    echo "  查看日誌:        docker logs openclaw-1"
-    echo "  停止容器:        docker stop openclaw-1"
-    echo "  重啟容器:        docker restart openclaw-1"
-    echo "  進入容器:        docker exec -it openclaw-1 /bin/sh"
+    echo "  Docker Compose 指令 (在 ${BASE_PATH} 目錄下執行):"
+    echo "    cd ${BASE_PATH}"
+    echo "    docker compose ps                  # 查看容器狀態"
+    echo "    docker compose logs openclaw-1      # 查看日誌"
+    echo "    docker compose stop                 # 停止所有容器"
+    echo "    docker compose restart openclaw-1   # 重啟單一容器"
+    echo "    docker compose up -d                # 啟動所有容器"
+    echo "    docker compose down                 # 停止並移除所有容器"
+    echo ""
+    echo "  進入容器:"
+    echo "    docker exec -it openclaw-1 /bin/sh"
     echo ""
     echo "  Tailscale 指令:"
     echo "    tailscale status                    # 查看 Tailscale 狀態"
@@ -653,14 +679,17 @@ show_summary() {
     echo "    docker exec openclaw-1 node dist/index.js pairing approve telegram <配對碼>"
     echo ""
     echo "  更新容器:"
-    echo "    docker pull ghcr.io/openclaw/openclaw:latest"
-    echo "    docker stop openclaw-1 && docker rm openclaw-1"
-    echo "    # 然後重新運行 docker run 指令"
+    echo "    cd ${BASE_PATH}"
+    echo "    docker compose pull                 # 拉取最新映像"
+    echo "    docker compose up -d                # 重建容器 (資料不受影響)"
     echo ""
     echo "------------------------------------------------------------------------------"
-    echo "備份路徑："
+    echo "備份與轉移："
     echo "------------------------------------------------------------------------------"
-    echo "  備份整個 ${BASE_PATH} 目錄即可包含所有實例資料"
+    echo "  備份: tar -czvf openclaw-backup.tar.gz ${BASE_PATH}"
+    echo "  還原: tar -xzvf openclaw-backup.tar.gz -C /"
+    echo "  轉移後啟動: cd ${BASE_PATH} && docker compose up -d"
+    echo "  (備份包含 docker-compose.yml + 所有設定與資料)"
     echo ""
     echo "=============================================================================="
     echo "參考文檔："
@@ -704,18 +733,22 @@ main() {
     echo "=============================================================================="
     echo ""
     
-    preflight_checks         # Step 0
-    setup_swap               # Step 1
-    install_docker           # Step 2
-    install_tailscale        # Step 3
-    create_directories       # Step 4
-    generate_configs         # Step 5
-    setup_firewall           # Step 6
-    run_containers           # Step 7
-    health_check             # Step 8
-    setup_tailscale_serve    # Step 9
-    security_hardening       # Step 10
-    show_summary             # Step 11
+    if [ "$SKIP_TO_STEP" -gt 0 ]; then
+        log_warning "跳過至 Step ${SKIP_TO_STEP}..."
+    fi
+    
+    [ "$SKIP_TO_STEP" -le 0 ]  && preflight_checks         # Step 0
+    [ "$SKIP_TO_STEP" -le 1 ]  && setup_swap               # Step 1
+    [ "$SKIP_TO_STEP" -le 2 ]  && install_docker           # Step 2
+    [ "$SKIP_TO_STEP" -le 3 ]  && install_tailscale        # Step 3
+    [ "$SKIP_TO_STEP" -le 4 ]  && create_directories       # Step 4
+    [ "$SKIP_TO_STEP" -le 5 ]  && generate_configs         # Step 5
+    [ "$SKIP_TO_STEP" -le 6 ]  && setup_firewall           # Step 6
+    [ "$SKIP_TO_STEP" -le 7 ]  && run_containers           # Step 7
+    [ "$SKIP_TO_STEP" -le 8 ]  && health_check             # Step 8
+    [ "$SKIP_TO_STEP" -le 9 ]  && setup_tailscale_serve    # Step 9
+    [ "$SKIP_TO_STEP" -le 10 ] && security_hardening       # Step 10
+    show_summary             # Step 11 (永遠顯示摘要)
 }
 
 # 執行主函數

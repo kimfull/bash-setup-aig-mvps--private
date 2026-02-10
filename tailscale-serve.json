@@ -1,0 +1,36 @@
+{
+  "TCP": {
+    "18111": {
+      "HTTPS": true
+    },
+    "18222": {
+      "HTTPS": true
+    },
+    "18333": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "vmi3065625.tailcd5df1.ts.net:18111": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:18111"
+        }
+      }
+    },
+    "vmi3065625.tailcd5df1.ts.net:18222": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:18222"
+        }
+      }
+    },
+    "vmi3065625.tailcd5df1.ts.net:18333": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:18333"
+        }
+      }
+    }
+  }
+}
