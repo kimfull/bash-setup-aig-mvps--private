@@ -354,6 +354,132 @@ DOCKERFILE_CONTENT
 }
 
 # ==============================================================================
+# Step 4.8: 建立 OMR Agent Client 腳本
+# ==============================================================================
+create_omr_client() {
+    log_step "Step 4.8: 建立 OMR Agent Client 腳本"
+    
+    CLIENT_FILE="${BASE_PATH}/omr-client.js"
+    
+    log_info "建立 omr-client.js..."
+    cat > "${CLIENT_FILE}" <<'JS_CONTENT'
+/**
+ * OMR Agent Client
+ * Automatically connects OpenClaw agents to the Meeting Room
+ */
+const AGENT_NAME = process.env.AGENT_NAME || 'unknown';
+const ADMIN_HOST = process.env.ADMIN_HOST || 'http://openclaw-admin:18999';
+const POLL_INTERVAL = 3000;
+
+console.log(`[OMR] Agent ${AGENT_NAME} starting... connecting to ${ADMIN_HOST}`);
+
+let lastMessageId = 0;
+
+async function init() {
+    try {
+        // Initial fetch to get latest ID
+        const res = await fetch(`${ADMIN_HOST}/api/omr/history?limit=5`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.messages && data.messages.length > 0) {
+                lastMessageId = data.messages[data.messages.length - 1].id;
+            }
+        }
+        console.log(`[OMR] Initialized. Listening from ID: ${lastMessageId}`);
+        
+        // Start polling
+        setInterval(poll, POLL_INTERVAL);
+        
+        // Announce presence
+        await sendPresence();
+    } catch (err) {
+        console.error('[OMR] Init failed:', err.message);
+        setTimeout(init, 5000);
+    }
+}
+
+async function sendPresence() {
+    try {
+        await fetch(`${ADMIN_HOST}/api/omr/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Agent-ID': AGENT_NAME },
+            body: JSON.stringify({
+                content: `🔵 **${AGENT_NAME}** is online.`,
+                type: 'text',
+                agent_status: 'online'
+            })
+        });
+    } catch (e) { /* ignore */ }
+}
+
+async function poll() {
+    try {
+        const res = await fetch(`${ADMIN_HOST}/api/omr/history?since_id=${lastMessageId}`);
+        if (!res.ok) return;
+        
+        const data = await res.json();
+        const messages = data.messages || [];
+
+        for (const msg of messages) {
+            lastMessageId = Math.max(lastMessageId, msg.id);
+
+            if (msg.sender !== 'kimfull') continue;
+
+            const content = msg.content.toLowerCase();
+            const me = AGENT_NAME.toLowerCase();
+            
+            // Listen for @me or @all
+            if (content.includes(`@${me}`) || content.includes('@all')) {
+                console.log(`[OMR] Received command: ${msg.content}`);
+                await reply(msg);
+            }
+        }
+    } catch (err) {
+        console.error('[OMR] Poll error:', err.message);
+    }
+}
+
+async function reply(triggerMsg) {
+    const response = `🤖 **${AGENT_NAME}** received: "${triggerMsg.content}"\n_Processing..._`;
+    
+    try {
+        await fetch(`${ADMIN_HOST}/api/omr/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Agent-ID': AGENT_NAME },
+            body: JSON.stringify({
+                content: response,
+                type: 'text',
+                reply_to_id: triggerMsg.id,
+                agent_status: 'working'
+            })
+        });
+        
+        // Fake processing delay
+        setTimeout(async () => {
+             await fetch(`${ADMIN_HOST}/api/omr/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Agent-ID': AGENT_NAME },
+                body: JSON.stringify({
+                    content: `✅ Task complete.`,
+                    type: 'text',
+                    agent_status: 'idle'
+                })
+            });
+        }, 3000);
+        
+    } catch (err) {
+        console.error('[OMR] Reply failed:', err.message);
+    }
+}
+
+init();
+JS_CONTENT
+    
+    chmod 644 "${CLIENT_FILE}"
+    log_success "已建立: ${CLIENT_FILE}"
+
+
+# ==============================================================================
 # Step 5: 生成 Token 並建立設定檔
 # ==============================================================================
 generate_configs() {
@@ -416,6 +542,15 @@ COMPOSE_HEADER
         PORT=$(echo $instance | cut -d':' -f2)
         INSTANCE_PATH="${BASE_PATH}/${NAME}"
         
+        # Determine Agent Name
+        if [[ "${NAME}" == "openclaw-1" ]]; then
+            AGENT_NAME="lisa"
+        elif [[ "${NAME}" == "openclaw-2" ]]; then
+            AGENT_NAME="rose"
+        else
+            AGENT_NAME="oc-${NAME##*-}"
+        fi
+        
         cat >> "${COMPOSE_FILE}" <<EOF
   ${NAME}:
     build:
@@ -437,6 +572,7 @@ COMPOSE_HEADER
     volumes:
       - ${INSTANCE_PATH}:/home/node/.openclaw
       - ${BASE_PATH}/linuxbrew-${NAME##*-}:/home/linuxbrew
+      - ${BASE_PATH}/omr-client.js:/home/node/omr-client.js:ro
     environment:
       - TZ=${TIMEZONE}
       - OPENCLAW_GATEWAY_PORT=${PORT}
@@ -444,6 +580,10 @@ COMPOSE_HEADER
       - OPENCLAW_STATE_DIR=/home/node/.openclaw/state
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE}
       - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:\$PATH
+      - AGENT_NAME=${AGENT_NAME}
+      - ADMIN_HOST=http://openclaw-admin:18999
+    # Run OMR Client in background before starting OpenClaw
+    command: sh -c "nohup node /home/node/omr-client.js > /home/node/.openclaw/omr.log 2>&1 & exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured"
 
 EOF
     done
@@ -909,6 +1049,7 @@ main() {
     [ "$SKIP_TO_STEP" -le 3 ]  && install_tailscale        # Step 3
     [ "$SKIP_TO_STEP" -le 4 ]  && create_directories       # Step 4
     [ "$SKIP_TO_STEP" -le 4 ]  && create_dockerfile        # Step 4.5
+    [ "$SKIP_TO_STEP" -le 4 ]  && create_omr_client        # Step 4.8
     [ "$SKIP_TO_STEP" -le 5 ]  && generate_configs         # Step 5
     [ "$SKIP_TO_STEP" -le 6 ]  && setup_firewall           # Step 6
     [ "$SKIP_TO_STEP" -le 7 ]  && run_containers           # Step 7

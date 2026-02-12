@@ -2,7 +2,7 @@
 
 ## 核心體驗：Agent 即時指揮中心
 
-一個整合於 Admin Panel 的協作空間，讓 **KimFull (Human)** 可以透過對話指揮 **Rose, Lisa, OC-3 (Agent)**，並接收即時回報。
+一個整合於 Admin Panel 的協作空間，讓 **KimFull (Human)** 主人可以與 **所有的docker裡的openclaw**對話討論，並接收即時回報。
 
 ## 🎯 關鍵設計：Wake-up Console
 
