@@ -468,6 +468,7 @@ EOF
       - "127.0.0.1:18999:18999"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${BASE_PATH}/admin-panel-data:/app/data
     environment:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
       - NODE_ENV=production
