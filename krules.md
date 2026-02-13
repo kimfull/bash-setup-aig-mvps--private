@@ -4,6 +4,13 @@
 我們將直接用root身份來進行操作，以利~/ai-agent.sh檔的完成。
 
 
+**每次有關於openclaw的操作，請先參考：
+https://github.com/openclaw/openclaw
+以及
+https://docs.openclaw.ai/
+**
+
+
 VPS 規格：
 - CPU：4 cores
 - RAM：8 GB
@@ -113,11 +120,6 @@ Token 生成：
 你必須不斷地嘗試直到上述任務完成為止。你必須常常更新ai-agent.sh檔。sh檔必須保持最新狀態。
 
 
-**每次有關於openclaw的操作，請先參考：
-https://github.com/openclaw/openclaw
-以及
-https://docs.openclaw.ai/
-**
 
 若收到指示“參考官方”時，請依照這兩個網站。
 
