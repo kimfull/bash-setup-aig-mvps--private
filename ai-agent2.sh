@@ -1522,14 +1522,15 @@ show_info() {
     # Actually, INSTANCE_TOKENS is global array, so it should persist? Yes.
     
     for i in 0 1 2; do
-        if [ $i -eq 0 ]; then SUFFIX="11"; fi
-        if [ $i -eq 1 ]; then SUFFIX="22"; fi
-        if [ $i -eq 2 ]; then SUFFIX="33"; fi
+        local SUFFIX="" ANAME=""
+        if [ $i -eq 0 ]; then SUFFIX="11"; ANAME="lisa"; fi
+        if [ $i -eq 1 ]; then SUFFIX="22"; ANAME="rose"; fi
+        if [ $i -eq 2 ]; then SUFFIX="33"; ANAME="agent-3"; fi
         
-        KEY="openclaw-1"
+        KEY="openclaw-$((i+1))"
         TOKEN="${INSTANCE_TOKENS[$KEY]}"
         
-        echo "Agent 1: https://${PREFIX}-${SUFFIX}.${DOMAIN_BASE}/?token=${TOKEN}"
+        echo "Agent $((i+1)) (${ANAME}): https://${PREFIX}-${SUFFIX}.${DOMAIN_BASE}/?token=${TOKEN}"
     done
     echo "=============================================================================="
 }
@@ -1541,6 +1542,7 @@ show_info() {
 # Ensure all steps are executed in order
 setup_system
 install_docker
+install_cloudflared
 setup_tunnel
 create_files
 generate_configs
