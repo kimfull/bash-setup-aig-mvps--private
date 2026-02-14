@@ -1423,7 +1423,7 @@ services:
       - ${BASE_PATH}/meeting.js:/app/lib/meeting.js:ro
       - ${BASE_PATH}/public/meeting.html:/app/public/meeting.html:ro
     command: >
-      sh -c "if ! grep -q 'meeting' /app/server.js; then sed -i '/server.listen/i require(\"./lib/meeting\")(app, io, server);' /app/server.js; fi && node /app/server.js"
+      sh -c "if ! grep -q 'meeting' /app/server.js; then sed -i '/server.listen/i require(\"./lib/meeting\")(app, io, server);' /app/server.js; fi && sed -i 's|/omr.html|/meeting|g' /app/public/index.html && node /app/server.js"
 
 EOF
 
