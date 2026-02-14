@@ -1384,6 +1384,9 @@ EOF
         # openclaw.json
         cat > "${INSTANCE_PATH}/config/openclaw.json" <<JSON
 {
+  "env": {
+    "OPENROUTER_API_KEY": "${OPENROUTER_KEY:-sk-or-PLACEHOLDER}"
+  },
   "gateway": {
     "mode": "local",
     "port": ${PORT},
@@ -1392,20 +1395,22 @@ EOF
     "auth": { "mode": "token", "token": "${TOKEN}", "allowTailscale": false },
     "controlUi": { "enabled": true, "allowInsecureAuth": true }
   },
-  "agents": { 
-    "defaults": { 
+  "agents": {
+    "defaults": {
       "workspace": "/home/node/.openclaw/workspace",
-      "llm": {
-        "provider": "openrouter",
-        "config": {
-          "apiKey": "${OPENROUTER_KEY:-sk-or-PLACEHOLDER}",
-          "model": "moonshotai/kimi-k2.5" 
-          // Default: Kimi 2.5 (Alias: km)
-          // Backup 1: "minimax/minimax-m2.5" (Alias: mm)
-          // Backup 2: "anthropic/claude-opus-4.6" (Alias: op)
-        }
+      "model": {
+        "primary": "openrouter/moonshotai/kimi-k2.5",
+        "fallbacks": [
+          "openrouter/minimax/minimax-m2.5",
+          "openrouter/anthropic/claude-opus-4.6"
+        ]
+      },
+      "models": {
+        "openrouter/moonshotai/kimi-k2.5": { "alias": "km" },
+        "openrouter/minimax/minimax-m2.5": { "alias": "mm" },
+        "openrouter/anthropic/claude-opus-4.6": { "alias": "op" }
       }
-    } 
+    }
   }
 }
 JSON
