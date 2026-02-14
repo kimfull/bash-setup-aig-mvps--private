@@ -39,7 +39,11 @@ async function sendWakeUpSignal() {
     try {
         await fetch(`${ADMIN_HOST}/api/omr/send`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Agent-ID': AGENT_NAME },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Agent-ID': AGENT_NAME,
+                'Authorization': `Bearer ${process.env.AGENT_TOKEN}`
+            },
             body: JSON.stringify({
                 content: `🔵 **${AGENT_NAME}** is online and listening.`,
                 type: 'text',
@@ -86,11 +90,13 @@ async function reply(triggerMsg) {
     const response = `🤖 **${AGENT_NAME}** received task: "${triggerMsg.content}"\n_Processing logic placeholder..._`;
 
     try {
+        // Send immediate response
         await fetch(`${ADMIN_HOST}/api/omr/send`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Agent-ID': AGENT_NAME
+                'X-Agent-ID': AGENT_NAME,
+                'Authorization': `Bearer ${process.env.AGENT_TOKEN}`
             },
             body: JSON.stringify({
                 content: response,
@@ -102,15 +108,21 @@ async function reply(triggerMsg) {
 
         // Simulate work done after 2 seconds
         setTimeout(async () => {
-            await fetch(`${ADMIN_HOST}/api/omr/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Agent-ID': AGENT_NAME },
-                body: JSON.stringify({
-                    content: `✅ Task complete.`,
-                    type: 'text',
-                    agent_status: 'idle'
-                })
-            });
+            try {
+                await fetch(`${ADMIN_HOST}/api/omr/send`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Agent-ID': AGENT_NAME,
+                        'Authorization': `Bearer ${process.env.AGENT_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        content: `✅ Task complete.`,
+                        type: 'text',
+                        agent_status: 'idle'
+                    })
+                });
+            } catch (e) { console.error('[OMR] Async reply failed', e); }
         }, 2000);
 
     } catch (err) {

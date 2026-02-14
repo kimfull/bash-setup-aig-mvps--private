@@ -1444,6 +1444,9 @@ services:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
       - CONTAINER_PREFIX=realvco-oc-
       - PORT=${ADMIN_PORT}
+      - AGENT_TOKEN_LISA=${INSTANCE_TOKENS[realvco-oc-1]}
+      - AGENT_TOKEN_ROSE=${INSTANCE_TOKENS[realvco-oc-2]}
+      - AGENT_TOKEN_JENNIE=${INSTANCE_TOKENS[realvco-oc-3]}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${BASE_PATH}/admin-panel-data:/app/data
@@ -1485,6 +1488,7 @@ EOF
       - OPENCLAW_STATE_DIR=/home/node/.openclaw/state
       - NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE}
       - PATH=/home/linuxbrew/.linuxbrew/bin:\$PATH
+      - AGENT_TOKEN=${INSTANCE_TOKENS[$TOKEN_KEY]}
     labels:
       - "openclaw.role=agent"
       - "openclaw.name=${AGENT_NAME}"
