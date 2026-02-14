@@ -29,7 +29,7 @@ DOCKER_LOG_MAX_FILE="10"
 NODE_MAX_OLD_SPACE="1536"
 
 # Cloudflare 設定
-CLOUDFLARE_TOKEN=""
+CLOUDFLARE_TOKEN="94-eDawCI63c8QHGOyE-yMCzPwqKaLx8q6dJWlWN"
 DOMAIN_BASE="realvco.com"
 PREFIX=""
 
@@ -50,23 +50,17 @@ log_step() { echo -e "\n\033[0;36m▶ $1\033[0m\n"; }
 # ==============================================================================
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --cloudflare-token) CLOUDFLARE_TOKEN="$2"; shift 2 ;;
-        --domain) DOMAIN_BASE="$2"; shift 2 ;;
         --prefix) PREFIX="$2"; shift 2 ;;
         *) echo "未知參數: $1"; exit 1 ;;
     esac
 done
 
-if [ -z "$CLOUDFLARE_TOKEN" ]; then
-    read -p "請輸入 Cloudflare Token: " CLOUDFLARE_TOKEN
-fi
-
 if [ -z "$PREFIX" ]; then
     read -p "請輸入二級域名 Prefix (例如 demo): " PREFIX
 fi
 
-if [ -z "$CLOUDFLARE_TOKEN" ] || [ -z "$PREFIX" ]; then
-    log_error "必須提供 Cloudflare Token 和 Prefix 才能繼續。"
+if [ -z "$PREFIX" ]; then
+    log_error "必須提供 Prefix 才能繼續。"
     exit 1
 fi
 
