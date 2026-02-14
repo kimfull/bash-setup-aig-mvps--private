@@ -1506,6 +1506,14 @@ EOF
 start_all() {
     log_step "Step 6: 啟動所有服務"
     cd "${BASE_PATH}"
+    
+    # Build the custom image first (avoids BuildKit race condition 
+    # when multiple services share the same build context + image tag)
+    log_info "Building openclaw-custom image..."
+    docker compose build
+    
+    # Now start all containers (image already exists, no rebuild)
+    log_info "Starting all containers..."
     docker compose up -d
 }
 
