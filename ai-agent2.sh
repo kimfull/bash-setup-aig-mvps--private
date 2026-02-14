@@ -1240,9 +1240,11 @@ ingress:
 EOF
 
     # 5.2 Instance Configs
+    for i in 0 1 2; do
         if [ $i -eq 0 ]; then SUFFIX="11"; fi
         if [ $i -eq 1 ]; then SUFFIX="22"; fi
         if [ $i -eq 2 ]; then SUFFIX="33"; fi
+        NAME="openclaw-$((i+1))"
         PORT=$(echo ${INSTANCES[$i]} | cut -d':' -f2)
         INSTANCE_PATH="${BASE_PATH}/${NAME}"
         mkdir -p "${INSTANCE_PATH}/config" "${INSTANCE_PATH}/state" "${INSTANCE_PATH}/workspace"
