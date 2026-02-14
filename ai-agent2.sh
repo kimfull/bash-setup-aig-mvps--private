@@ -57,9 +57,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [ -z "$CLOUDFLARE_TOKEN" ]; then
+    read -p "請輸入 Cloudflare Token: " CLOUDFLARE_TOKEN
+fi
+
+if [ -z "$DOMAIN_BASE" ]; then
+    read -p "請輸入域名 (例如 example.com): " DOMAIN_BASE
+fi
+
+if [ -z "$PREFIX" ]; then
+    read -p "請輸入前綴 (預設: oc): " INPUT_PREFIX
+    PREFIX=${INPUT_PREFIX:-oc}
+fi
+
 if [ -z "$CLOUDFLARE_TOKEN" ] || [ -z "$DOMAIN_BASE" ]; then
-    log_error "必須提供 --cloudflare-token 和 --domain"
-    echo "Usage: sudo bash ai-agent2.sh --cloudflare-token <token> --domain <example.com> [--prefix oc]"
+    log_error "必須提供 Cloudflare Token 和域名才能繼續。"
     exit 1
 fi
 
