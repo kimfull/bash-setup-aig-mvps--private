@@ -17,7 +17,7 @@ SSH_PORT=22
 # 實例配置
 INSTANCES=("openclaw-1:18111" "openclaw-2:18222" "openclaw-3:18333")
 # Admin Panel Port
-PORT_ADMIN=18999
+PORT_ADMIN=18000
 
 # Docker 資源限制
 DOCKER_CPUS="3"
@@ -143,57 +143,45 @@ EOF
     TUNNEL_NAME="${PREFIX}-tunnel"
     log_info "Creating tunnel '${TUNNEL_NAME}' via API..."
     
-    # 1. Create Tunnel via API
-    RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/tunnels" \
-        -H "Authorization: Bearer ${CF_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "{\"name\":\"${TUNNEL_NAME}\",\"config_src\":\"local\"}")
-    
+    # helper for creating tunnel
+    create_tunnel() {
+        curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/tunnels" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"${TUNNEL_NAME}\",\"config_src\":\"local\"}"
+    }
+
+    # 1. Try create
+    RESPONSE=$(create_tunnel)
     TUNNEL_ID=$(echo $RESPONSE | jq -r '.result.id')
     
-    if [ "$TUNNEL_ID" == "null" ]; then
-        # Maybe it already exists?
-        log_warning "Tunnel creation failed or exists. Listing tunnels..."
+    if [ "$TUNNEL_ID" == "null" ] || [ -z "$TUNNEL_ID" ]; then
+        log_warning "Tunnel might already exist. Cleaning up..."
+        # Find existing tunnel ID
         TUNNEL_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/tunnels?name=${TUNNEL_NAME}" \
             -H "Authorization: Bearer ${CF_TOKEN}" \
             -H "Content-Type: application/json" | jq -r '.result[0].id')
+        
+        if [ "$TUNNEL_ID" != "null" ]; then
+            log_info "Deleting existing tunnel ${TUNNEL_ID}..."
+            curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/tunnels/${TUNNEL_ID}" \
+                -H "Authorization: Bearer ${CF_TOKEN}" > /dev/null
+        fi
+        
+        # Try create again
+        RESPONSE=$(create_tunnel)
+        TUNNEL_ID=$(echo $RESPONSE | jq -r '.result.id')
     fi
     
-    if [ "$TUNNEL_ID" == "null" ] || [ -z "$TUNNEL_ID" ]; then
-        log_error "Failed to get Tunnel ID. Check API Token permissions."
-        echo "Response: $RESPONSE"
+    TUNNEL_SECRET=$(echo $RESPONSE | jq -r '.result.credentials_file.TunnelSecret')
+
+    if [ "$TUNNEL_ID" == "null" ] || [ "$TUNNEL_SECRET" == "null" ]; then
+        log_error "Failed to generate Tunnel. Response: $RESPONSE"
         exit 1
     fi
     
     log_success "Tunnel ID: ${TUNNEL_ID}"
     
-    # 2. Generate Credentials File (JSON)
-    # The API doesn't return the secret directly for existing tunnels easily.
-    # Wait, when creating a tunnel, the API returns `tunnel_secret`.
-    # If we missed it (already exists), we might need to reset it?
-    # Let's assume we can get it from creation response.
-    
-    TUNNEL_SECRET=$(echo $RESPONSE | jq -r '.result.tunnel_secret')
-    
-    if [ "$TUNNEL_SECRET" == "null" ]; then
-         # If tunnel existed, we can't retrieve the secret again securely via API list usually.
-         # We must generate a new token/credentials? Or rotate secret?
-         # For simplicity, let's treat "already exists" as "we need to rotate secret to get a new one".
-         log_info "Rotating Tunnel Secret to retrieve valid credentials..."
-         TUNNEL_SECRET=$(openssl rand -hex 32) # Generate new secret? No, API rotates it.
-         # Actually, better to DELETE and RECREATE if it exists to ensure we have the secret.
-         curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/tunnels/${TUNNEL_ID}" \
-            -H "Authorization: Bearer ${CF_TOKEN}" > /dev/null
-         
-         # Creates again
-         RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/tunnels" \
-            -H "Authorization: Bearer ${CF_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\":\"${TUNNEL_NAME}\",\"config_src\":\"local\"}")
-         TUNNEL_ID=$(echo $RESPONSE | jq -r '.result.id')
-         TUNNEL_SECRET=$(echo $RESPONSE | jq -r '.result.tunnel_secret')
-    fi
-
     # Save credentials.json
     cat > /etc/cloudflared/cred.json <<EOF
 {
@@ -204,14 +192,28 @@ EOF
 EOF
     
     # 3. DNS routing (CNAMEs)
-    # Helper to add CNAME
+    # Helper to add/update CNAME
     add_dns() {
         NAME=$1
-        echo "Adding DNS: ${NAME}.${DOMAIN_BASE} -> ${TUNNEL_ID}.cfargotunnel.com"
+        FULL_DOMAIN="${NAME}.${DOMAIN_BASE}"
+        TARGET="${TUNNEL_ID}.cfargotunnel.com"
+        
+        log_info "Updating DNS for ${FULL_DOMAIN}..."
+        
+        # Find existing
+        RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records?name=${FULL_DOMAIN}&type=CNAME" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" | jq -r '.result[0].id')
+            
+        if [ "$RECORD_ID" != "null" ]; then
+            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records/${RECORD_ID}" \
+                -H "Authorization: Bearer ${CF_TOKEN}" > /dev/null
+        fi
+        
         curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records" \
             -H "Authorization: Bearer ${CF_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"type\":\"CNAME\",\"name\":\"${NAME}\",\"content\":\"${TUNNEL_ID}.cfargotunnel.com\",\"ttl\":1,\"proxied\":true}" > /dev/null
+            -d "{\"type\":\"CNAME\",\"name\":\"${NAME}\",\"content\":\"${TARGET}\",\"ttl\":1,\"proxied\":true}" > /dev/null
     }
     
     # We will call add_dns later in config generation?
@@ -248,7 +250,7 @@ EOF
     # 4.2 OMR Client (Agent Component)
     cat > "${BASE_PATH}/omr-client.js" <<'JS_CONTENT'
 const AGENT_NAME = process.env.AGENT_NAME || 'unknown';
-const ADMIN_HOST = process.env.ADMIN_HOST || 'http://127.0.0.1:18999'; // Use localhost since network_mode: host
+const ADMIN_HOST = process.env.ADMIN_HOST || 'http://127.0.0.1:18000'; // Use localhost since network_mode: host
 const POLL_INTERVAL = 3000;
 console.log(`[OMR] Agent ${AGENT_NAME} starting... connecting to ${ADMIN_HOST}`);
 let lastMessageId = 0;
@@ -1339,26 +1341,32 @@ HTML_CONTENT
 generate_configs() {
     log_step "Step 5: 生成設定檔 (Cloudflare Mode)"
     
+    local ADMIN_PORT=18000
+
     # 5.1 Cloudflared Config
     mkdir -p ${BASE_PATH}/cloudflared
     cat > "${BASE_PATH}/cloudflared/config.yml" <<EOF
 tunnel: ${TUNNEL_ID}
 credentials-file: /etc/cloudflared/cred.json
 ingress:
-  - hostname: ${PREFIX}-99.${DOMAIN_BASE}
-    service: http://127.0.0.1:${PORT_ADMIN}
+  - hostname: ${PREFIX}-00.${DOMAIN_BASE}
+    service: http://127.0.0.1:${ADMIN_PORT}
 EOF
 
-    # Add DNS for Admin
-    add_dns "${PREFIX}-99"
+    # Add DNS for Admin (00)
+    add_dns "${PREFIX}-00"
 
     # 5.2 Instance Configs
     for i in 0 1 2; do
-        if [ $i -eq 0 ]; then SUFFIX="11"; fi
-        if [ $i -eq 1 ]; then SUFFIX="22"; fi
-        if [ $i -eq 2 ]; then SUFFIX="33"; fi
+        local SUFFIX=""
+        local PORT=""
+        local CONTAINER_TAG=""
+
+        if [ $i -eq 0 ]; then SUFFIX="11"; PORT="18111"; CONTAINER_TAG="11"; fi
+        if [ $i -eq 1 ]; then SUFFIX="22"; PORT="18222"; CONTAINER_TAG="22"; fi
+        if [ $i -eq 2 ]; then SUFFIX="33"; PORT="18333"; CONTAINER_TAG="33"; fi
+        
         NAME="openclaw-$((i+1))"
-        PORT=$(echo ${INSTANCES[$i]} | cut -d':' -f2)
         INSTANCE_PATH="${BASE_PATH}/${NAME}"
         mkdir -p "${INSTANCE_PATH}/config" "${INSTANCE_PATH}/state" "${INSTANCE_PATH}/workspace"
         chown -R 1000:1000 "${INSTANCE_PATH}"
@@ -1384,7 +1392,21 @@ EOF
     "auth": { "mode": "token", "token": "${TOKEN}", "allowTailscale": false },
     "controlUi": { "enabled": true, "allowInsecureAuth": true }
   },
-  "agents": { "defaults": { "workspace": "/home/node/.openclaw/workspace" } }
+  "agents": { 
+    "defaults": { 
+      "workspace": "/home/node/.openclaw/workspace",
+      "llm": {
+        "provider": "openrouter",
+        "config": {
+          "apiKey": "${OPENROUTER_KEY:-sk-or-PLACEHOLDER}",
+          "model": "moonshotai/kimi-k2.5" 
+          // Default: Kimi 2.5 (Alias: km)
+          // Backup 1: "minimax/minimax-m2.5" (Alias: mm)
+          // Backup 2: "anthropic/claude-opus-4.6" (Alias: op)
+        }
+      }
+    } 
+  }
 }
 JSON
         chown 1000:1000 "${INSTANCE_PATH}/config/openclaw.json"
@@ -1400,7 +1422,7 @@ JSON
 services:
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: ${PREFIX}-cloudflared
+    container_name: realvco-cloudflare-tunnel
     restart: unless-stopped
     command: tunnel run
     network_mode: host
@@ -1410,40 +1432,43 @@ services:
 
   admin-panel:
     image: ghcr.io/kimfull/webvco-aig-mvps-panel--private:latest
-    container_name: ${PREFIX}-admin
+    container_name: realvco-admin-panel
     restart: unless-stopped
     network_mode: host
     environment:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
-      - CONTAINER_PREFIX=${PREFIX}-
-      - PORT=${PORT_ADMIN}
+      - CONTAINER_PREFIX=realvco-oc-
+      - PORT=${ADMIN_PORT}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${BASE_PATH}/admin-panel-data:/app/data
       - ${BASE_PATH}/meeting.js:/app/lib/meeting.js:ro
       - ${BASE_PATH}/public/meeting.html:/app/public/meeting.html:ro
     command: >
-      sh -c "if ! grep -q 'meeting' /app/server.js; then sed -i '/server.listen/i require(\"./lib/meeting\")(app, io, server);' /app/server.js; fi && sed -i 's|/omr.html|/meeting|g' /app/public/index.html && node /app/server.js"
+      sh -c "sed -i \"s|<body>|<body><div style='text-align:center;padding:10px;background:#1e293b;border-bottom:1px solid #334155;'><a href='/meeting?token=${ADMIN_TOKEN}' style='color:#4Ade80;font-weight:bold;text-decoration:none;font-size:1.2em;' target='_blank'>🚀 進入 OpenClaw Meeting Room (OMR)</a></div>|g\" /app/public/index.html && if ! grep -q 'meeting' /app/server.js; then sed -i '/server.listen/i require(\"./lib/meeting\")(app, io, server);' /app/server.js; fi && node /app/server.js"
 
 EOF
 
     for i in 0 1 2; do
-        NAME="openclaw-$((i+1))"
-        PORT=$(echo ${INSTANCES[$i]} | cut -d':' -f2)
-        AGENT_NAME="agent-$((i+1))"
-        if [ $i -eq 0 ]; then AGENT_NAME="lisa"; fi
-        if [ $i -eq 1 ]; then AGENT_NAME="rose"; fi
+        local NAME="openclaw-$((i+1))"
+        local AGENT_NAME=""
+        local PORT=""
+        local CONTAINER_TAG=""
+
+        if [ $i -eq 0 ]; then AGENT_NAME="lisa"; PORT="18111"; CONTAINER_TAG="11"; fi
+        if [ $i -eq 1 ]; then AGENT_NAME="rose"; PORT="18222"; CONTAINER_TAG="22"; fi
+        if [ $i -eq 2 ]; then AGENT_NAME="agent-3"; PORT="18333"; CONTAINER_TAG="33"; fi
         
         cat >> "${COMPOSE_FILE}" <<EOF
   ${NAME}:
     build: { context: ., dockerfile: Dockerfile.custom }
     image: openclaw-custom:latest
-    container_name: ${PREFIX}-${NAME##*-}
+    container_name: realvco-oc-${CONTAINER_TAG}
     restart: unless-stopped
     network_mode: host
     environment:
       - AGENT_NAME=${AGENT_NAME}
-      - ADMIN_HOST=http://127.0.0.1:${PORT_ADMIN}
+      - ADMIN_HOST=http://127.0.0.1:${ADMIN_PORT}
       - OPENCLAW_GATEWAY_PORT=${PORT}
       - OPENCLAW_CONFIG_PATH=/home/node/.openclaw/config/openclaw.json
       - OPENCLAW_STATE_DIR=/home/node/.openclaw/state
@@ -1463,26 +1488,58 @@ EOF
 EOF
     done
 }
+# ==============================================================================
+# Helper Functions for Completion
+# ==============================================================================
+
+start_all() {
+    log_step "Step 6: 啟動所有服務"
+    cd "${BASE_PATH}"
+    docker compose up -d
+}
+
+wait_for_docker() {
+    log_step "Step 7: 等待服務啟動..."
+    sleep 10
+    docker ps -a
+}
+
+show_info() {
+    log_step "Done! 安裝完成"
+    echo "=============================================================================="
+    echo "VPS IP: $(curl -s ifconfig.me)"
+    echo "Admin Panel: https://${PREFIX}-00.${DOMAIN_BASE}/"
+    echo "Admin Token: ${ADMIN_TOKEN}"
+    echo "------------------------------------------------------------------------------"
+    
+    # Manually print agents since we used local vars inside generate_configs
+    # We need to reconstruct the tokens or just print instructions to check logs.
+    # Actually, INSTANCE_TOKENS is global array, so it should persist? Yes.
+    
+    for i in 0 1 2; do
+        if [ $i -eq 0 ]; then SUFFIX="11"; fi
+        if [ $i -eq 1 ]; then SUFFIX="22"; fi
+        if [ $i -eq 2 ]; then SUFFIX="33"; fi
+        
+        KEY="openclaw-1"
+        TOKEN="${INSTANCE_TOKENS[$KEY]}"
+        
+        echo "Agent 1: https://${PREFIX}-${SUFFIX}.${DOMAIN_BASE}/?token=${TOKEN}"
+    done
+    echo "=============================================================================="
+}
 
 # ==============================================================================
-# Main
+# Main Execution Flow
 # ==============================================================================
+
+# Ensure all steps are executed in order
 setup_system
 install_docker
-install_cloudflared
 setup_tunnel
 create_files
 generate_configs
+start_all
+wait_for_docker
+show_info
 
-# Firewall
-ufw allow ${SSH_PORT}/tcp
-echo "y" | ufw enable
-
-# Run
-cd ${BASE_PATH}
-docker compose build
-docker compose up -d
-
-log_success "Deployment Complete!"
-echo "Admin Panel: https://${PREFIX}-admin.${DOMAIN_BASE}/?token=${ADMIN_TOKEN}"
-EOF
