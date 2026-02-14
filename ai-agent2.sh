@@ -1450,7 +1450,7 @@ services:
       - ${BASE_PATH}/meeting.js:/app/lib/meeting.js:ro
       - ${BASE_PATH}/public/meeting.html:/app/public/meeting.html:ro
     command: >
-      sh -c "sed -i \"s|<body>|<body><div style='text-align:center;padding:10px;background:#1e293b;border-bottom:1px solid #334155;'><a href='/meeting?token=${ADMIN_TOKEN}' style='color:#4Ade80;font-weight:bold;text-decoration:none;font-size:1.2em;' target='_blank'>🚀 進入 OpenClaw Meeting Room (OMR)</a></div>|g\" /app/public/index.html && if ! grep -q 'meeting' /app/server.js; then sed -i '/server.listen/i require(\"./lib/meeting\")(app, io, server);' /app/server.js; fi && node /app/server.js"
+      sh -c "if ! grep -q 'OpenClaw Meeting Room' /app/public/index.html; then sed -i \"s|<body>|<body><div style='text-align:center;padding:10px;background:#1e293b;border-bottom:1px solid #334155;'><a href='/meeting?token=${ADMIN_TOKEN}' style='color:#4Ade80;font-weight:bold;text-decoration:none;font-size:1.2em;' target='_blank'>🚀 進入 OpenClaw Meeting Room (OMR)</a></div>|g\" /app/public/index.html; fi && if ! grep -q 'meeting' /app/server.js; then sed -i '/server.listen/i require(\"./lib/meeting\")(app, io, server);' /app/server.js; fi && node /app/server.js"
 
 EOF
 
