@@ -30,8 +30,8 @@ NODE_MAX_OLD_SPACE="1536"
 
 # Cloudflare 設定
 CLOUDFLARE_TOKEN=""
-DOMAIN_BASE=""
-PREFIX="oc"
+DOMAIN_BASE="realvco.com"
+PREFIX=""
 
 # 儲存 Token
 declare -A INSTANCE_TOKENS
@@ -61,17 +61,12 @@ if [ -z "$CLOUDFLARE_TOKEN" ]; then
     read -p "請輸入 Cloudflare Token: " CLOUDFLARE_TOKEN
 fi
 
-if [ -z "$DOMAIN_BASE" ]; then
-    read -p "請輸入域名 (例如 example.com): " DOMAIN_BASE
-fi
-
 if [ -z "$PREFIX" ]; then
-    read -p "請輸入前綴 (預設: oc): " INPUT_PREFIX
-    PREFIX=${INPUT_PREFIX:-oc}
+    read -p "請輸入二級域名 Prefix (例如 demo): " PREFIX
 fi
 
-if [ -z "$CLOUDFLARE_TOKEN" ] || [ -z "$DOMAIN_BASE" ]; then
-    log_error "必須提供 Cloudflare Token 和域名才能繼續。"
+if [ -z "$CLOUDFLARE_TOKEN" ] || [ -z "$PREFIX" ]; then
+    log_error "必須提供 Cloudflare Token 和 Prefix 才能繼續。"
     exit 1
 fi
 
@@ -1246,13 +1241,14 @@ generate_configs() {
 tunnel: ${CLOUDFLARE_TOKEN}
 credentials-file: /etc/cloudflared/cert.json
 ingress:
-  - hostname: ${PREFIX}-admin.${DOMAIN_BASE}
+  - hostname: ${PREFIX}-99.${DOMAIN_BASE}
     service: http://127.0.0.1:${PORT_ADMIN}
 EOF
 
     # 5.2 Instance Configs
-    for i in 0 1 2; do
-        NAME="openclaw-$((i+1))"
+        if [ $i -eq 0 ]; then SUFFIX="11"; fi
+        if [ $i -eq 1 ]; then SUFFIX="22"; fi
+        if [ $i -eq 2 ]; then SUFFIX="33"; fi
         PORT=$(echo ${INSTANCES[$i]} | cut -d':' -f2)
         INSTANCE_PATH="${BASE_PATH}/${NAME}"
         mkdir -p "${INSTANCE_PATH}/config" "${INSTANCE_PATH}/state" "${INSTANCE_PATH}/workspace"
@@ -1262,7 +1258,7 @@ EOF
         INSTANCE_TOKENS[$NAME]=$TOKEN
         
         # Cloudflared Ingress
-        echo "  - hostname: ${PREFIX}-$((i+1)).${DOMAIN_BASE}" >> "${BASE_PATH}/cloudflared/config.yml"
+        echo "  - hostname: ${PREFIX}-${SUFFIX}.${DOMAIN_BASE}" >> "${BASE_PATH}/cloudflared/config.yml"
         echo "    service: http://127.0.0.1:${PORT}" >> "${BASE_PATH}/cloudflared/config.yml"
         
         # openclaw.json
