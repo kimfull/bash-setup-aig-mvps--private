@@ -53,6 +53,7 @@ log_step() { echo -e "\n\033[0;36m▶ $1\033[0m\n"; }
 while [[ $# -gt 0 ]]; do
     case $1 in
         --prefix) PREFIX="$2"; shift 2 ;;
+        --skip-tunnel) SKIP_TUNNEL="true"; shift ;;
         *) echo "未知參數: $1"; exit 1 ;;
     esac
 done
@@ -1561,7 +1562,9 @@ show_info() {
 setup_system
 install_docker
 install_cloudflared
-setup_tunnel
+if [[ "$SKIP_TUNNEL" != "true" ]]; then
+    setup_tunnel
+fi
 create_files
 generate_configs
 start_all
