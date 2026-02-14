@@ -38,10 +38,10 @@ Cloudflare Tunnel (加密通道，VPS 無需開放任何入站端口)
     │
     ▼
 VPS 內部 127.0.0.1
-    ├── :18111 → openclaw-1  (Token Auth)
-    ├── :18222 → openclaw-2  (Token Auth)
-    ├── :18333 → openclaw-3  (Token Auth)
-    └── :18999 → admin-panel (Token Auth)
+    ├── :18801 → realvco-oc-1 Lisa   (Token Auth)
+    ├── :18802 → realvco-oc-2 Rose   (Token Auth)
+    ├── :18803 → realvco-oc-3 Jennie (Token Auth)
+    └── :18000 → admin-panel         (Token Auth)
 ```
 
 安全層：

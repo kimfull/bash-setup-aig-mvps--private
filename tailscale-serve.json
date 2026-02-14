@@ -1,34 +1,34 @@
 {
   "TCP": {
-    "18111": {
+    "18801": {
       "HTTPS": true
     },
-    "18222": {
+    "18802": {
       "HTTPS": true
     },
-    "18333": {
+    "18803": {
       "HTTPS": true
     }
   },
   "Web": {
-    "vmi3065625.tailcd5df1.ts.net:18111": {
+    "vmi3065625.tailcd5df1.ts.net:18801": {
       "Handlers": {
         "/": {
-          "Proxy": "http://127.0.0.1:18111"
+          "Proxy": "http://127.0.0.1:18801"
         }
       }
     },
-    "vmi3065625.tailcd5df1.ts.net:18222": {
+    "vmi3065625.tailcd5df1.ts.net:18802": {
       "Handlers": {
         "/": {
-          "Proxy": "http://127.0.0.1:18222"
+          "Proxy": "http://127.0.0.1:18802"
         }
       }
     },
-    "vmi3065625.tailcd5df1.ts.net:18333": {
+    "vmi3065625.tailcd5df1.ts.net:18803": {
       "Handlers": {
         "/": {
-          "Proxy": "http://127.0.0.1:18333"
+          "Proxy": "http://127.0.0.1:18803"
         }
       }
     }

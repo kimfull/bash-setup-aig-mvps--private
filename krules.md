@@ -32,17 +32,17 @@ VPS 規格：
 sh檔案 的功能及架構等說明：
 - 在 Ubuntu 24.04 Server 上自動安裝 Docker 並建置三個完全隔離的openclaw實例。
 - 每個實例將使用不同的容器名稱及端口，以確保隔離：
-    - ~/openclaw-1   :18111
-    - ~/openclaw-2   :18222
-    - ~/openclaw-3   :18333
+    - realvco-oc-1 (Lisa)    :18801
+    - realvco-oc-2 (Rose)    :18802
+    - realvco-oc-3 (Jennie)  :18803
 - 每個實例將使用不同的數據存儲路徑，以確保隔離（詳見下方目錄結構規範）。
 
 目錄結構規範：
 - 統一基礎路徑：/opt/openclaw (符合 Linux FHS 標準，且方便整機備份)
 - 實例結構：
-    - /opt/openclaw/openclaw-1/config/openclaw.json (設定檔)
-    - /opt/openclaw/openclaw-1/state/             (狀態 sessions)
-    - /opt/openclaw/openclaw-1/workspace/         (記憶 memories)
+    - /opt/openclaw/realvco-oc-1/config/openclaw.json (設定檔)
+    - /opt/openclaw/realvco-oc-1/state/             (狀態 sessions)
+    - /opt/openclaw/realvco-oc-1/workspace/         (記憶 memories)
 - 備份策略：直接備份 /opt/openclaw 目錄即可包含所有實例資料
 - 每個實例將使用不同的 token，以確保隔離。
 - 每個實例將使用不同的環境變數，以確保隔離。
@@ -52,7 +52,7 @@ sh檔案 的功能及架構等說明：
 
 多實例隔離規範 (根據官方文件)：
 - 每個實例需要獨立的環境變數：
-    - OPENCLAW_CONFIG_PATH：設定檔路徑 (例如 ~/.openclaw-1/openclaw.json)
+    - OPENCLAW_CONFIG_PATH：設定檔路徑 (例如 ~/.realvco-oc-1/openclaw.json)
     - OPENCLAW_STATE_DIR：狀態目錄，存放 sessions/credentials
     - OPENCLAW_GATEWAY_PORT：端口號 (或用 --port 參數)
     - agents.defaults.workspace：memories 存放路徑
@@ -66,7 +66,7 @@ sh檔案 的功能及架構等說明：
 - 使用陣列定義實例配置，預設 3 個實例
 - 使用迴圈處理，方便未來擴展
 - 範例架構：
-    INSTANCES=("openclaw-1:18188" "openclaw-2:18288" "openclaw-3:18388")
+    INSTANCES=("realvco-oc-1:18801" "realvco-oc-2:18802" "realvco-oc-3:18803")
     for instance in "${INSTANCES[@]}"; do
         NAME=$(echo $instance | cut -d':' -f1)
         PORT=$(echo $instance | cut -d':' -f2)
@@ -113,7 +113,7 @@ Token 生成：
 安裝完成後輸出摘要：
 - 顯示每個實例的名稱、端口、Token、以及數據路徑
 - 顯示防火牆開放狀態
-- 顯示如何查看日誌的指令範例 (例如 docker logs openclaw-1)
+- 顯示如何查看日誌的指令範例 (例如 docker logs realvco-oc-1)
 - 顯示如何手動停止/重啟的指令範例
 
 
@@ -146,7 +146,7 @@ Token 生成：
 {
   "gateway": {
     "mode": "local",        // 必填！否則 Gateway 不會啟動
-    "port": 18111,
+    "port": 18801,
     "bind": "lan",          // Docker 容器內必須用 "lan" 才能讓外部存取
     "auth": {
       "mode": "token",
@@ -174,7 +174,7 @@ Token 生成：
 
 使用單一掛載點簡化配置：
 ```bash
--v /opt/openclaw/openclaw-1:/home/node/.openclaw
+-v /opt/openclaw/realvco-oc-1:/home/node/.openclaw
 ```
 
 這會自動包含 config/, state/, workspace/ 等子目錄。

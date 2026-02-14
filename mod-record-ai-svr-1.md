@@ -8,9 +8,9 @@
 
 | 容器 | CPU 保留 (shares) | CPU 上限 (cpus) | RAM 保留 | RAM 上限 |
 |------|-------------------|-----------------|----------|----------|
-| **openclaw-1** (ocd-11) | 0.5 core (512) | 1.5 cores | 1 GB | 3 GB |
-| **openclaw-2** (ocd-12) | 2 cores (2048) | 3.5 cores | 4 GB | 6 GB |
-| **openclaw-3** (ocd-13) | 0.5 core (512) | 1.5 cores | 1 GB | 3 GB |
+| **realvco-oc-1** Lisa   | 0.5 core (512) | 1.5 cores | 1 GB | 3 GB |
+| **realvco-oc-2** Rose   | 2 cores (2048) | 3.5 cores | 4 GB | 6 GB |
+| **realvco-oc-3** Jennie | 0.5 core (512) | 1.5 cores | 1 GB | 3 GB |
 
 **系統資源：** 4 cores / 8 GB RAM + 8 GB Swap = 16 GB
 
@@ -18,9 +18,9 @@
 
 **指令：**
 ```bash
-docker update --cpus=1.5 --cpu-shares=512 --memory=3g --memory-reservation=1g openclaw-1
-docker update --cpus=3.5 --cpu-shares=2048 --memory=6g --memory-reservation=4g openclaw-2
-docker update --cpus=1.5 --cpu-shares=512 --memory=3g --memory-reservation=1g openclaw-3
+docker update --cpus=1.5 --cpu-shares=512 --memory=3g --memory-reservation=1g realvco-oc-1
+docker update --cpus=3.5 --cpu-shares=2048 --memory=6g --memory-reservation=4g realvco-oc-2
+docker update --cpus=1.5 --cpu-shares=512 --memory=3g --memory-reservation=1g realvco-oc-3
 ```
 
 **備註：**

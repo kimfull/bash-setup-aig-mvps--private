@@ -15,7 +15,7 @@ SWAPPINESS=20
 SSH_PORT=22
 
 # 實例配置
-INSTANCES=("openclaw-1:18111" "openclaw-2:18222" "openclaw-3:18333")
+INSTANCES=("realvco-oc-1:18801" "realvco-oc-2:18802" "realvco-oc-3:18803")
 # Admin Panel Port
 PORT_ADMIN=18000
 
@@ -674,7 +674,7 @@ module.exports = function (app, io, server) {
                     name = name.replace(/^(client-demo-\d+-|openclaw-|oc-)/, '');
                 }
                 const token = labels['openclaw.token'];
-                const port = labels['openclaw.port'] || '18111';
+                const port = labels['openclaw.port'] || '18801';
 
                 if (name && token) {
                     const id = name.toLowerCase().replace(/\s+/g, '_');
@@ -1362,11 +1362,11 @@ EOF
         local PORT=""
         local CONTAINER_TAG=""
 
-        if [ $i -eq 0 ]; then SUFFIX="11"; PORT="18111"; CONTAINER_TAG="11"; fi
-        if [ $i -eq 1 ]; then SUFFIX="22"; PORT="18222"; CONTAINER_TAG="22"; fi
-        if [ $i -eq 2 ]; then SUFFIX="33"; PORT="18333"; CONTAINER_TAG="33"; fi
+        if [ $i -eq 0 ]; then SUFFIX="1"; PORT="18801"; CONTAINER_TAG="1"; fi
+        if [ $i -eq 1 ]; then SUFFIX="2"; PORT="18802"; CONTAINER_TAG="2"; fi
+        if [ $i -eq 2 ]; then SUFFIX="3"; PORT="18803"; CONTAINER_TAG="3"; fi
         
-        NAME="openclaw-$((i+1))"
+        NAME="realvco-oc-$((i+1))"
         INSTANCE_PATH="${BASE_PATH}/${NAME}"
         mkdir -p "${INSTANCE_PATH}/config" "${INSTANCE_PATH}/state" "${INSTANCE_PATH}/workspace"
         chown -R 1000:1000 "${INSTANCE_PATH}"
@@ -1455,17 +1455,23 @@ services:
 EOF
 
     for i in 0 1 2; do
-        local NAME="openclaw-$((i+1))"
+        local SERVICE_NAME=""
         local AGENT_NAME=""
         local PORT=""
         local CONTAINER_TAG=""
 
-        if [ $i -eq 0 ]; then AGENT_NAME="lisa"; PORT="18111"; CONTAINER_TAG="11"; fi
-        if [ $i -eq 1 ]; then AGENT_NAME="rose"; PORT="18222"; CONTAINER_TAG="22"; fi
-        if [ $i -eq 2 ]; then AGENT_NAME="agent-3"; PORT="18333"; CONTAINER_TAG="33"; fi
+        # Update naming scheme: realvco-oc-1 (18801), realvco-oc-2 (18802), realvco-oc-3 (18803)
+        if [ $i -eq 0 ]; then AGENT_NAME="lisa"; PORT="18801"; CONTAINER_TAG="1"; SERVICE_NAME="realvco-oc-1"; fi
+        if [ $i -eq 1 ]; then AGENT_NAME="rose"; PORT="18802"; CONTAINER_TAG="2"; SERVICE_NAME="realvco-oc-2"; fi
+        if [ $i -eq 2 ]; then AGENT_NAME="jennie"; PORT="18803"; CONTAINER_TAG="3"; SERVICE_NAME="realvco-oc-3"; fi
         
+        # We need to map original INSTANCE_TOKENS keys (realvco-oc-1, etc) to these new service names if we rely on them later?
+        # Actually INSTANCE_TOKENS uses keys "realvco-oc-1", "realvco-oc-2" defined at start of script.
+        # So we should keep using "realvco-oc-$((i+1))" to LOOK UP the token.
+        local TOKEN_KEY="realvco-oc-$((i+1))"
+
         cat >> "${COMPOSE_FILE}" <<EOF
-  ${NAME}:
+  ${SERVICE_NAME}:
     build: { context: ., dockerfile: Dockerfile.custom }
     image: openclaw-custom:latest
     container_name: realvco-oc-${CONTAINER_TAG}
@@ -1483,9 +1489,9 @@ EOF
       - "openclaw.role=agent"
       - "openclaw.name=${AGENT_NAME}"
       - "openclaw.port=${PORT}"
-      - "openclaw.token=${INSTANCE_TOKENS[$NAME]}"
+      - "openclaw.token=${INSTANCE_TOKENS[$TOKEN_KEY]}"
     volumes:
-      - ${BASE_PATH}/${NAME}:/home/node/.openclaw
+      - ${BASE_PATH}/${TOKEN_KEY}:/home/node/.openclaw
       - ${BASE_PATH}/linuxbrew-$((i+1)):/home/linuxbrew
       - ${BASE_PATH}/omr-client.js:/home/node/omr-client.js:ro
     command: sh -c "nohup node /home/node/omr-client.js > /home/node/.openclaw/omr.log 2>&1 & exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured"
@@ -1523,11 +1529,11 @@ show_info() {
     
     for i in 0 1 2; do
         local SUFFIX="" ANAME=""
-        if [ $i -eq 0 ]; then SUFFIX="11"; ANAME="lisa"; fi
-        if [ $i -eq 1 ]; then SUFFIX="22"; ANAME="rose"; fi
-        if [ $i -eq 2 ]; then SUFFIX="33"; ANAME="agent-3"; fi
+        if [ $i -eq 0 ]; then SUFFIX="1"; ANAME="lisa"; fi
+        if [ $i -eq 1 ]; then SUFFIX="2"; ANAME="rose"; fi
+        if [ $i -eq 2 ]; then SUFFIX="3"; ANAME="jennie"; fi
         
-        KEY="openclaw-$((i+1))"
+        KEY="realvco-oc-$((i+1))"
         TOKEN="${INSTANCE_TOKENS[$KEY]}"
         
         echo "Agent $((i+1)) (${ANAME}): https://${PREFIX}-${SUFFIX}.${DOMAIN_BASE}/?token=${TOKEN}"
