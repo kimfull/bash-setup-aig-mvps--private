@@ -1446,6 +1446,11 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: realvco-cloudflare-tunnel
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE}"
+        max-file: "${DOCKER_LOG_MAX_FILE}"
     command: tunnel run
     network_mode: host
     volumes:
@@ -1456,6 +1461,11 @@ services:
     image: ghcr.io/kimfull/webvco-aig-mvps-panel--private:latest
     container_name: realvco-admin-panel
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE}"
+        max-file: "${DOCKER_LOG_MAX_FILE}"
     network_mode: host
     environment:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
@@ -1496,6 +1506,11 @@ EOF
     image: openclaw-custom:latest
     container_name: realvco-oc-${CONTAINER_TAG}
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE}"
+        max-file: "${DOCKER_LOG_MAX_FILE}"
     network_mode: host
     environment:
       - AGENT_NAME=${AGENT_NAME}
