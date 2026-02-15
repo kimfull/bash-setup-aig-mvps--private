@@ -1427,6 +1427,17 @@ EOF
         "openrouter/minimax/minimax-m2.5": { "alias": "mm" },
         "openrouter/anthropic/claude-opus-4.6": { "alias": "op" }
       }
+    },
+    "hooks": {
+      "internal": {
+        "enabled": true,
+        "entries": {
+          "boot-md": { "enabled": true },
+          "bootstrap-extra-files": { "enabled": true },
+          "command-logger": { "enabled": true },
+          "session-memory": { "enabled": true }
+        }
+      }
     }
   }
 }
