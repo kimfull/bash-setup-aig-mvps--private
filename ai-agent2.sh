@@ -34,6 +34,7 @@ CF_ACCOUNT="db410229f4fb3cf11e1dff1a02123815"
 CF_ZONE="3d7f7eb135bda0a96b5963d797d6e569"
 DOMAIN_BASE="realvco.com"
 PREFIX=""
+OPENROUTER_KEY="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"
 
 # 儲存 Token
 declare -A INSTANCE_TOKENS
@@ -46,6 +47,47 @@ log_success() { echo -e "\033[0;32m[SUCCESS]\033[0m $1"; }
 log_warning() { echo -e "\033[1;33m[WARNING]\033[0m $1"; }
 log_error() { echo -e "\033[0;31m[ERROR]\033[0m $1"; }
 log_step() { echo -e "\n\033[0;36m▶ $1\033[0m\n"; }
+
+# 3. DNS routing (CNAMEs)
+# Helper to add/update CNAME
+add_dns() {
+    NAME=$1
+    FULL_DOMAIN="${NAME}.${DOMAIN_BASE}"
+    # If TUNNEL_ID is empty (e.g. initial run before creation), we might fail.
+    # But usually this is called after creation or retrieval.
+    TARGET="${TUNNEL_ID}.cfargotunnel.com"
+    
+    log_info "Updating DNS for ${FULL_DOMAIN}..."
+    
+    # Check if record exists
+    EXISTING_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records?name=${FULL_DOMAIN}&type=CNAME" \
+        -H "Authorization: Bearer ${CF_TOKEN}" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id')
+        
+    if [ "$EXISTING_ID" != "null" ] && [ -n "$EXISTING_ID" ]; then
+        # Check if target matches
+        EXISTING_CONTENT=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records/${EXISTING_ID}" \
+             -H "Authorization: Bearer ${CF_TOKEN}" \
+             -H "Content-Type: application/json" | jq -r '.result.content')
+             
+        if [ "$EXISTING_CONTENT" == "$TARGET" ]; then
+             log_success "DNS for ${FULL_DOMAIN} already correct."
+             return
+        fi
+        
+        # Update (PUT) instead of Delete+Create to be safer
+        curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records/${EXISTING_ID}" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"CNAME\",\"name\":\"${NAME}\",\"content\":\"${TARGET}\",\"ttl\":1,\"proxied\":true}" > /dev/null
+    else
+        # Create
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records" \
+            -H "Authorization: Bearer ${CF_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"CNAME\",\"name\":\"${NAME}\",\"content\":\"${TARGET}\",\"ttl\":1,\"proxied\":true}" > /dev/null
+    fi
+}
 
 # ==============================================================================
 # 參數解析
@@ -194,33 +236,7 @@ EOF
     
     # 3. DNS routing (CNAMEs)
     # Helper to add/update CNAME
-    add_dns() {
-        NAME=$1
-        FULL_DOMAIN="${NAME}.${DOMAIN_BASE}"
-        TARGET="${TUNNEL_ID}.cfargotunnel.com"
-        
-        log_info "Updating DNS for ${FULL_DOMAIN}..."
-        
-        # Find existing
-        RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records?name=${FULL_DOMAIN}&type=CNAME" \
-            -H "Authorization: Bearer ${CF_TOKEN}" \
-            -H "Content-Type: application/json" | jq -r '.result[0].id')
-            
-        if [ "$RECORD_ID" != "null" ]; then
-            curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records/${RECORD_ID}" \
-                -H "Authorization: Bearer ${CF_TOKEN}" > /dev/null
-        fi
-        
-        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE}/dns_records" \
-            -H "Authorization: Bearer ${CF_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"type\":\"CNAME\",\"name\":\"${NAME}\",\"content\":\"${TARGET}\",\"ttl\":1,\"proxied\":true}" > /dev/null
-    }
-    
-    # We will call add_dns later in config generation?
-    # No, do it here or store function.
-    # We need to know specific subdomains. They are generated in loop.
-    # Let's export variables to be used in generate_configs.
+    # export TUNNEL_ID is not needed if variable is global
     export TUNNEL_ID
 }
 
@@ -1564,6 +1580,21 @@ install_docker
 install_cloudflared
 if [[ "$SKIP_TUNNEL" != "true" ]]; then
     setup_tunnel
+else
+    # Try to load existing Tunnel ID
+    if [ -f /etc/cloudflared/cred.json ]; then
+        TUNNEL_ID=$(jq -r .TunnelID /etc/cloudflared/cred.json 2>/dev/null)
+        if [ -n "$TUNNEL_ID" ] && [ "$TUNNEL_ID" != "null" ]; then
+             log_info "Using existing Tunnel ID: ${TUNNEL_ID}"
+             export TUNNEL_ID
+        else
+             log_error "Could not parse TunnelID from /etc/cloudflared/cred.json"
+             exit 1
+        fi
+    else
+        log_error "SKIP_TUNNEL requested but /etc/cloudflared/cred.json not found."
+        exit 1
+    fi
 fi
 create_files
 generate_configs

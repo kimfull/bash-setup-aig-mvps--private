@@ -1,3 +1,11 @@
+- boot-md (Run BOOT.md on gateway startup)
+- bootstrap-extra-files (Inject additional workspace bootstrap files via glob/path patterns)
+- command-logger (Log all command events to a centralized audit file)
+- session-memory (Save session context to memory when /new command is issued)
+
+
+
+
 docker exec -it realvco-oc-1 node dist/index.js onboard
 docker exec -it realvco-oc-2 node dist/index.js onboard
 docker exec -it realvco-oc-3 node dist/index.js onboard
